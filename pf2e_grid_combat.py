@@ -12,7 +12,7 @@ pygame.init()
 pygame.font.init()
 
 # Constants
-WINDOW_WIDTH = 1024
+WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 900  # Increased from 768 to 900
 GRID_SIZE = 64  # Each grid square represents 5 feet in game
 GRID_COLS = 16  # Increased from 12 to 16
@@ -77,6 +77,18 @@ IMAGE_PATHS = {
 }
 
 class Effect:
+    """
+    Handles visual effects and animations in the game.
+    This class manages various combat animations like magic missiles, strikes, healing effects, etc.
+    Each effect has its own draw method and lifecycle.
+    
+    Attributes:
+        start_pos: Starting position of the effect
+        end_pos: Ending position of the effect
+        color: RGB color tuple for the effect
+        duration: How long the effect lasts in frames
+        effect_type: Type of effect (e.g., "magic_missile", "strike", "heal")
+    """
     def __init__(self, start_pos: Union['GridPosition', Tuple[int, int]], 
                  end_pos: Union['GridPosition', Tuple[int, int]], 
                  color: Tuple[int, int, int], 
@@ -353,6 +365,15 @@ class Effect:
         surface.blit(circle_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE + 50))
 
 class GridPosition:
+    """
+    Represents a position on the game grid.
+    Handles grid-based positioning and calculations for movement and distance.
+    Provides utility methods for converting between grid and pixel coordinates.
+    
+    Attributes:
+        x: X coordinate on the grid
+        y: Y coordinate on the grid
+    """
     def __init__(self, x: int, y: int):
         self.x = x
         self.y = y
@@ -371,6 +392,20 @@ class GridPosition:
         return (self.x * GRID_SIZE, self.y * GRID_SIZE)
 
 class Character:
+    """
+    Base class for all characters in the game (both player characters and enemies).
+    Implements core functionality like movement, combat, health management, and rendering.
+    
+    Attributes:
+        name: Character's name
+        hp/max_hp: Current and maximum health points
+        base_ac: Base armor class
+        attack_bonus: Bonus to attack rolls
+        position: Current GridPosition
+        sprite: Character's visual representation
+        potions: Number of healing potions available
+        speed: Movement speed in feet
+    """
     def __init__(self, name: str, hp: int, ac: int, attack_bonus: int):
         self.name = name
         self.max_hp = hp
@@ -671,6 +706,16 @@ class Character:
         return (self.position.x * GRID_SIZE, self.position.y * GRID_SIZE)
 
 class Fighter(Character):
+    """
+    Fighter class character specializing in melee combat.
+    Features high HP, good armor, and powerful melee attacks.
+    Special ability: Power Attack (2 actions) for increased damage.
+    
+    Starting Stats:
+        HP: 50
+        AC: 18
+        Attack Bonus: +9
+    """
     def __init__(self, name: str):
         super().__init__(name, hp=50, ac=18, attack_bonus=9)
         self.color = FIGHTER_COLOR
@@ -724,6 +769,17 @@ class Fighter(Character):
         return 2, True  # Always consume 2 actions, regardless of hit
 
 class Rogue(Character):
+    """
+    Rogue class character focusing on mobility and tactical positioning.
+    Excels at flanking and dealing extra damage to off-guard targets.
+    Special abilities: Sneak Attack and Twin Feint.
+    
+    Starting Stats:
+        HP: 38
+        AC: 17
+        Attack Bonus: +8
+        Speed: 30 feet (faster than other classes)
+    """
     def __init__(self, name: str):
         super().__init__(name, hp=38, ac=17, attack_bonus=8)
         self.color = ROGUE_COLOR
@@ -796,6 +852,20 @@ class Rogue(Character):
         return 2, hit1 or hit2  # Always consume exactly 2 actions total
 
 class Wizard(Character):
+    """
+    Wizard class character specializing in ranged magical attacks.
+    Features various spells with different ranges and effects.
+    Special abilities: Magic Missile, Arcane Blast, and Shield spell.
+    
+    Starting Stats:
+        HP: 32
+        AC: 16
+        Attack Bonus: +6
+        
+    Spell Ranges:
+        Arcane Blast: 20 feet (4 squares)
+        Magic Missile: 120 feet (24 squares)
+    """
     # Spell ranges in squares (1 square = 5 feet)
     ARCANE_BLAST_RANGE = 4  # 20 feet
     MAGIC_MISSILE_RANGE = 24  # 120 feet
@@ -900,6 +970,16 @@ class Wizard(Character):
         return 1, True
 
 class Enemy(Character):
+    """
+    Enemy class representing various hostile creatures.
+    Implements AI behavior and enemy-specific attributes.
+    Different enemy types (Goblin, Ogre, Wyvern) have unique stats and abilities.
+    
+    Enemy Types:
+        - Goblin: Basic enemy with balanced stats
+        - Ogre: Tough enemy with high damage
+        - Wyvern: Boss enemy with high stats across the board
+    """
     def __init__(self, name: str, hp: int, ac: int, attack_bonus: int, damage_dice: Tuple[int, int] = (1, 8)):
         super().__init__(name, hp, ac, attack_bonus)
         self.damage_dice = damage_dice
@@ -937,6 +1017,26 @@ class Enemy(Character):
         return actions
 
 class Game:
+    """
+    Main game class handling the core game loop and state management.
+    Controls game flow, UI rendering, input handling, and battle mechanics.
+    
+    Features:
+        - Turn-based combat system
+        - Wave-based progression
+        - Character upgrades between waves
+        - Visual effects and animations
+        - Message log system
+        - Multiple game states (combat, upgrade, wave confirmation)
+        
+    Game Flow:
+        1. Player selects character class
+        2. Battle starts with wave 1 (Goblins)
+        3. After each wave, characters can be upgraded
+        4. Wave 2 features Ogres
+        5. Final wave 3 features the Wyvern boss
+        6. Victory achieved after defeating all waves
+    """
     def __init__(self):
         self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
         pygame.display.set_caption("PF2E Grid Combat")
