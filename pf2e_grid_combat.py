@@ -444,11 +444,24 @@ class Character:
             return True
         return False
     
-    def draw(self, surface: pygame.Surface):
+    def draw(self, surface: pygame.Surface, game: Optional['Game'] = None):
         if not self.alive:
             return
         
         x, y = self.position.get_pixel_pos()
+        
+        # Draw active turn indicator if this is the current character
+        if (game and not self.is_enemy and 
+            game.state == "combat" and 
+            game.current_member_idx < len(game.party) and 
+            game.party[game.current_member_idx] == self):
+            # Draw pulsing highlight around active character
+            pulse = abs(math.sin(pygame.time.get_ticks() / 500))  # Pulsing effect
+            highlight_color = (255, 255, 255, int(100 + 155 * pulse))
+            highlight_surface = pygame.Surface((GRID_SIZE + 8, GRID_SIZE + 8), pygame.SRCALPHA)
+            pygame.draw.rect(highlight_surface, highlight_color, 
+                           (0, 0, GRID_SIZE + 8, GRID_SIZE + 8), 4, border_radius=4)
+            surface.blit(highlight_surface, (x - 4, y - 4))
         
         # Draw character sprite or fallback shape
         if self.sprite:
@@ -665,7 +678,15 @@ class Fighter(Character):
         
     def get_actions(self, game: 'Game') -> List[Tuple[str, GridPosition, callable]]:
         """Get available actions for the fighter"""
-        actions = super().get_actions(game)  # Get basic actions first
+        actions = []  # Start fresh instead of using super() to control action order
+        
+        # Add Stride action button (doesn't show movement squares yet)
+        if game.actions_left >= 1:
+            actions.append(("Stride [1]", self.position, lambda: self.select_stride(game)))
+            
+        # Add Heal action
+        if game.actions_left >= 1 and self.potions > 0:
+            actions.append(("Heal [1]", self.position, lambda: self.heal(game)))
         
         # Add melee actions if we have a selected target
         if game.selected_target and game.selected_target.is_alive():
@@ -675,13 +696,16 @@ class Fighter(Character):
             if distance <= 1:  # Melee range
                 # Add Strike if we have enough actions
                 if game.actions_left >= 1:
-                    actions.append(("Strike", self.position,
+                    actions.append(("Strike [1]", self.position,
                                   ("Strike", lambda t: self.attack(t, game, dice=(1, 10)))))
                 
                 # Add Power Attack if we have enough actions
                 if game.actions_left >= 2:
-                    actions.append(("Power Attack", self.position, 
+                    actions.append(("Power Attack [2]", self.position, 
                                   ("Power Attack", lambda t: self.power_attack(t, game))))
+        
+        # Always add End Turn action
+        actions.append(("End Turn [0]", self.position, lambda: game.next_turn()))
         
         return actions
         
@@ -708,7 +732,15 @@ class Rogue(Character):
         
     def get_actions(self, game: 'Game') -> List[Tuple[str, GridPosition, callable]]:
         """Get available actions for the rogue"""
-        actions = super().get_actions(game)  # Get basic actions first
+        actions = []  # Start fresh instead of using super()
+        
+        # Add Stride action button (doesn't show movement squares yet)
+        if game.actions_left >= 1:
+            actions.append(("Stride [1]", self.position, lambda: self.select_stride(game)))
+            
+        # Add Heal action
+        if game.actions_left >= 1 and self.potions > 0:
+            actions.append(("Heal [1]", self.position, lambda: self.heal(game)))
         
         # Add melee actions if we have a selected target
         if game.selected_target and game.selected_target.is_alive():
@@ -718,13 +750,16 @@ class Rogue(Character):
             if distance <= 1:  # Melee range
                 # Add Strike if we have enough actions
                 if game.actions_left >= 1:
-                    actions.append(("Strike", self.position,
+                    actions.append(("Strike [1]", self.position,
                                   ("Strike", lambda t: self.strike(t, game))))
                 
                 # Add Twin Feint if we have enough actions
                 if game.actions_left >= 2:
-                    actions.append(("Twin Feint", self.position,
+                    actions.append(("Twin Feint [2]", self.position,
                                   ("Twin Feint", lambda t: self.twin_feint(t, game))))
+        
+        # Always add End Turn action
+        actions.append(("End Turn [0]", self.position, lambda: game.next_turn()))
         
         return actions
         
@@ -773,7 +808,15 @@ class Wizard(Character):
         
     def get_actions(self, game: 'Game') -> List[Tuple[str, GridPosition, callable]]:
         """Get available actions for the wizard"""
-        actions = super().get_actions(game)  # Get basic actions first
+        actions = []  # Start fresh instead of using super()
+        
+        # Add Stride action button (doesn't show movement squares yet)
+        if game.actions_left >= 1:
+            actions.append(("Stride [1]", self.position, lambda: self.select_stride(game)))
+            
+        # Add Heal action
+        if game.actions_left >= 1 and self.potions > 0:
+            actions.append(("Heal [1]", self.position, lambda: self.heal(game)))
         
         # Add spells that need targeting
         if game.selected_target and game.selected_target.is_alive():
@@ -782,21 +825,24 @@ class Wizard(Character):
             
             # Add Arcane Blast if in range and have enough actions
             if distance <= self.ARCANE_BLAST_RANGE and game.actions_left >= 1:
-                actions.append(("Arcane Blast", self.position,
+                actions.append(("Arcane Blast [1]", self.position,
                               ("Arcane Blast", lambda t: self.arcane_blast(target, game))))
             
             # Add Magic Missile options if in range and have enough actions
             if distance <= self.MAGIC_MISSILE_RANGE:
                 for i in range(1, min(game.actions_left + 1, 4)):
                     count = i  # Store count to avoid lambda capture issues
-                    actions.append((f"Magic Missile ({i})", self.position,
+                    actions.append((f"Magic Missile [{i}]", self.position,
                                   (f"Magic Missile ({i})", 
                                    lambda t: self.magic_missile(target, game, count))))
         
         # Add Shield spell (no target needed) if have enough actions and not already up
         if game.actions_left >= 1 and not self.shield_up:
-            actions.append(("Shield", self.position, lambda: self.cast_shield(game)))
-            
+            actions.append(("Shield [1]", self.position, lambda: self.cast_shield(game)))
+        
+        # Always add End Turn action
+        actions.append(("End Turn [0]", self.position, lambda: game.next_turn()))
+        
         return actions
         
     def arcane_blast(self, target: 'Character', game: 'Game') -> Tuple[int, bool]:
@@ -1391,11 +1437,11 @@ class Game:
         
         # Draw characters
         for char in self.party:
-            char.draw(self.grid_surface)
+            char.draw(self.grid_surface, self)
             
         # Draw all current enemies
         for enemy in self.current_enemies:
-            enemy.draw(self.grid_surface)
+            enemy.draw(self.grid_surface, self)
         
         # Draw range indicators and valid targets
         if self.selected_character:
