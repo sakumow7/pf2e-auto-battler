@@ -1,0 +1,4 @@
+PyQt6>=6.5
+pygame>=2.5.0
+pyinstaller>=5.13.0
+setuptools>=65.5.1
