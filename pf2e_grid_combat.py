@@ -11,12 +11,26 @@ from typing import List, Tuple, Dict, Optional, Union
 pygame.init()
 pygame.font.init()
 
-# Constants
-WINDOW_WIDTH = 1280
-WINDOW_HEIGHT = 900  # Increased from 768 to 900
-GRID_SIZE = 64  # Each grid square represents 5 feet in game
-GRID_COLS = 16  # Increased from 12 to 16
-GRID_ROWS = 12  # Increased from 8 to 12
+# Get the display info to set window size
+display_info = pygame.display.Info()
+SCREEN_WIDTH = display_info.current_w
+SCREEN_HEIGHT = display_info.current_h
+
+# Set window size to 80% of screen size
+WINDOW_WIDTH = int(SCREEN_WIDTH * 0.95)
+WINDOW_HEIGHT = int(SCREEN_HEIGHT * 0.95)
+
+# Grid dimensions (number of cells)
+GRID_COLS = 16
+GRID_ROWS = 12
+
+# Calculate grid size based on window dimensions and desired grid layout
+# We subtract 100 from height to account for UI elements (50px top bar + 50px bottom margin)
+GRID_SIZE = min((WINDOW_WIDTH) // GRID_COLS, (WINDOW_HEIGHT - 100) // GRID_ROWS)
+
+# Recalculate window size to fit grid exactly
+WINDOW_WIDTH = GRID_COLS * GRID_SIZE
+WINDOW_HEIGHT = (GRID_ROWS * GRID_SIZE) + 100  # Add 100 for UI elements
 
 # Colors
 BACKGROUND_COLOR = (40, 40, 40)
@@ -2054,8 +2068,8 @@ class Game:
             y += 30
 
         # Draw continue and quit buttons
-        button_width = 250
-        button_height = 50
+        button_width = 300  # Increased from 250 to 300
+        button_height = 60  # Increased from 50 to 60
         margin = 40
         start_y = WINDOW_HEIGHT - 150
 
@@ -2065,7 +2079,8 @@ class Game:
         pygame.draw.rect(self.screen, BUTTON_COLOR, continue_rect)
         pygame.draw.rect(self.screen, TITLE_COLOR, continue_rect, 2)
         
-        continue_text = TITLE_FONT.render("Continue to Next Wave", True, TEXT_COLOR)
+        # Use regular FONT instead of TITLE_FONT for button text
+        continue_text = FONT.render("Continue to Next Wave", True, TEXT_COLOR)
         text_rect = continue_text.get_rect(center=continue_rect.center)
         self.screen.blit(continue_text, text_rect)
 
@@ -2075,7 +2090,8 @@ class Game:
         pygame.draw.rect(self.screen, BUTTON_COLOR, quit_rect)
         pygame.draw.rect(self.screen, TITLE_COLOR, quit_rect, 2)
         
-        quit_text = TITLE_FONT.render("Quit Game", True, TEXT_COLOR)
+        # Use regular FONT for consistency
+        quit_text = FONT.render("Quit Game", True, TEXT_COLOR)
         text_rect = quit_text.get_rect(center=quit_rect.center)
         self.screen.blit(quit_text, text_rect)
 
