@@ -982,6 +982,174 @@ class Wizard(Character):
         self.base_ac += 2
         self.shield_up = True
         return 1, True
+    
+class Cleric(Character):
+    """
+    Cleric class character specializing in supportive magical spells.
+    Features various spells with different ranges and effects.
+    Special abilities: Heal, Sanctuary, and Spirit Link spell.
+    
+    Starting Stats:
+        HP: 32
+        AC: 16
+        Attack Bonus: +6
+        
+    Spell Ranges:
+        Lesser Heal: 5 feet (1 squares) but variable
+        Sanctuary: 5 feet (1 square)
+        Spirit Link: 30 feet (6 square)
+    """
+    # Spell ranges in squares (1 square = 5 feet)
+    LESSER_HEAL_RANGE = 1 # 5 feet and variable
+    LESSER_HEAL_UP_RANGE = 6 # 30 feet
+    SANCTUARY_RANGE = 1 # 5 feet
+    SPIRIT_LINK_RANGE = 6 # 30 feet
+    
+    def __init__(self, name: str):
+        super().__init__(name, hp=32, ac=16, attack_bonus=6)
+        self.color = CLERIC_COLOR
+        # self.shield_up = False
+        self.load_sprite(IMAGE_PATHS['cleric'])
+        
+    def get_actions(self, game: 'Game') -> List[Tuple[str, GridPosition, callable]]:
+        """Get available actions for the cleric"""
+        actions = []  # Start fresh instead of using super()
+        
+        # Add Stride action button (doesn't show movement squares yet)
+        if game.actions_left >= 1:
+            actions.append(("Stride [1]", self.position, lambda: self.select_stride(game)))
+            
+        # Add Heal action (potion)
+        if game.actions_left >= 1 and self.potions > 0:
+            actions.append(("Heal [1]", self.position, lambda: self.heal(game)))
+        
+        # Add spells that need targeting
+        if game.selected_target and game.selected_target.is_alive():
+            distance = self.position.distance_to(game.selected_target.position)
+            target = game.selected_target  # Store target to avoid lambda capture issues
+            
+            # Add Spirit Link if in range and have enough actions
+            if distance <= self.SPIRIT_LINK_RANGE and game.actions_left >= 1:
+                actions.append(("Spirit Link [1]", self.position,
+                              ("Spirit Link", lambda t: self.spirit_link(target, game))))
+            
+            # Add Sanctuary if in range and have enough actions
+            if distance <= self.SANCTUARY_RANGE and game.actions_left >= 1:
+                actions.append(("Sanctuary [1]", self.position,
+                              ("Sanctuary", lambda t: self.sanctuary(target, game))))
+            
+            # Add Lesser Heal [1] if in touch range
+            if distance <= self.LESSER_HEAL_RANGE and game.actions_left >= 1:
+                actions.append(("Lesser Heal [1]", self.position,
+                                ("Lesser Heal (1)", lambda t: self.lesser_heal(target, game, 1))))
+
+            # Add Lesser Heal [2] if in 30-foot range
+            if  distance <= self.LESSER_HEAL_UP_RANGE and game.actions_left >= 2:
+                actions.append(("Lesser Heal [2]", self.position,
+                                ("Lesser Heal (2)", lambda t: self.lesser_heal(target, game, 2))))
+
+            # Add Lesser Heal [3] (AoE, no target check needed)
+            if game.actions_left >= 3:
+                actions.append(("Lesser Heal [3]", self.position,
+                                ("Lesser Heal (3)", lambda t: self.lesser_heal(target, game, 3))))
+        
+        # Always add End Turn action
+        actions.append(("End Turn [0]", self.position, lambda: game.next_turn()))
+        
+        return actions
+        
+    def spirit_link(self, target: 'Character', game: 'Game') -> Tuple[int, bool]:
+        """Cast Spirit Link to balance HP between self and the target."""
+        distance = self.position.distance_to(target.position)
+        if distance > self.SPIRIT_LINK_RANGE:
+            game.add_message(f"{target.name} is out of range for Spirit Link (range: 30 feet).")
+            return 0, False
+
+        # Calculate average HP (rounded down)
+        total_hp = self.hp + target.hp
+        new_hp = total_hp // 2
+
+        # Show visual effect
+        game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), SPIRIT_LINK_COLOR, effect_type="link"))
+
+        game.add_message(f"{self.name} casts Spirit Link on {target.name} to equalize their HP.")
+        game.add_message(f"HP Before: {self.name} = {self.hp} HP | {target.name} = {target.hp} HP")
+
+        # Set both HPs to the average
+        self.hp = min(new_hp, self.max_hp)
+        target.hp = min(new_hp, target.max_hp)
+
+        game.add_message(f"HP After: {self.name} = {self.hp}/{self.max_hp} | {target.name} = {target.hp}/{target.max_hp}")
+
+        return 1, True  # Consumes 1 action
+    
+    def sanctuary(self, target: 'Character', game: 'Game') -> Tuple[int, bool]:
+        """Cast Sanctuary to protect an ally from hostile actions"""
+        distance = self.position.distance_to(target.position)
+        if distance > self.SANCTUARY_RANGE:
+            game.add_message(f"{target.name} is out of range for Sanctuary (range: 5 feet).")
+            return 0, False
+
+        game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), SANCTUARY_COLOR, effect_type="buff"))
+        game.add_message(f"{self.name} casts Sanctuary on {target.name}.")
+
+        target.add_condition("Sanctuary", duration=1)  # Implement this in your condition/effect system
+        return 1, True
+        
+
+    def lesser_heal(self, target: 'Character', game: 'Game', action_count: int) -> Tuple[int, bool]:
+        """Cast Lesser Heal with variable action cost (1–3 actions)"""
+        if game.actions_left < action_count:
+            game.add_message("Not enough actions to cast Lesser Heal.")
+            return 0, False
+
+        distance = self.position.distance_to(target.position)
+        if action_count == 1 and distance > 1:
+            game.add_message("Lesser Heal [1 Action] is touch only — target too far.")
+            return 0, False
+        elif action_count in (2, 3) and distance > self.LESSER_HEAL_UP_RANGE:
+            game.add_message("Lesser Heal [2+ Actions] requires target within 30 feet.")
+            return 0, False
+
+        game.add_message(f"{self.name} casts Lesser Heal with {action_count} action(s)!")
+
+        if action_count == 1:
+            # 1-action: touch only
+            heal_amount = random.randint(1, 8)
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
+            old_hp = target.hp
+            target.hp = min(target.hp + heal_amount, target.max_hp)
+            healed = target.hp - old_hp
+            game.add_message(f"{target.name} heals for {healed} HP. Now at {target.hp}/{target.max_hp} HP.")
+
+        elif action_count == 2:
+            # 2-actions: ranged + bonus healing
+            heal_amount = random.randint(1, 8) + 8
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
+            old_hp = target.hp
+            target.hp = min(target.hp + heal_amount, target.max_hp)
+            healed = target.hp - old_hp
+            game.add_message(f"{target.name} heals for {healed} HP. Now at {target.hp}/{target.max_hp} HP.")
+
+        else:
+            # 3-actions: AoE to all friendlies within 30 feet
+            heal_amount = random.randint(1, 8)
+            game.add_message(f"A wave of healing energy pulses outward from {self.name}, restoring {heal_amount} HP to all allies in range!")
+
+            for char in game.characters:
+                if not char.is_alive() or char.is_enemy:
+                    continue
+                if self.position.distance_to(char.position) <= self.LESSER_HEAL_UP_RANGE:
+                    old_hp = char.hp
+                    char.hp = min(char.hp + heal_amount, char.max_hp)
+                    healed = char.hp - old_hp
+                    game.add_effect(Effect(self.get_pixel_pos(), char.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
+                    if healed > 0:
+                        game.add_message(f"{char.name} heals for {healed} HP. Now at {char.hp}/{char.max_hp} HP.")
+                    else:
+                        game.add_message(f"{char.name} is already at full HP.")
+
+        return action_count, True
 
 class Enemy(Character):
     """
