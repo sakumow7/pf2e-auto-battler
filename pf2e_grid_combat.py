@@ -1136,7 +1136,7 @@ class Cleric(Character):
             heal_amount = random.randint(1, 8)
             game.add_message(f"A wave of healing energy pulses outward from {self.name}, restoring {heal_amount} HP to all allies in range!")
 
-            for char in game.characters:
+            for char in game.party:
                 if not char.is_alive() or char.is_enemy:
                     continue
                 if self.position.distance_to(char.position) <= self.LESSER_HEAL_UP_RANGE:
