@@ -1,0 +1,85 @@
+[gd_resource type="Theme" load_steps=8 format=3 uid="uid://ce715unl8iqup"]
+
+[ext_resource type="FontFile" uid="uid://405rmxtxxn1j" path="res://assets/RPG UI/FantasyRPGtext (size 8).ttf" id="1_dq0rs"]
+[ext_resource type="Texture2D" uid="uid://bxed5qpt6u4ps" path="res://assets/RPG UI/UI assets Demo (1x).png" id="1_y3vmf"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_1kc73"]
+content_margin_left = 4.0
+content_margin_top = 4.0
+content_margin_right = 4.0
+content_margin_bottom = 4.0
+bg_color = Color(0.1, 0.1, 0.1, 0.3)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+corner_detail = 5
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_3fkty"]
+content_margin_left = 4.0
+content_margin_top = 4.0
+content_margin_right = 4.0
+content_margin_bottom = 4.0
+bg_color = Color(1, 1, 1, 0.75)
+draw_center = false
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+corner_detail = 5
+expand_margin_left = 2.0
+expand_margin_top = 2.0
+expand_margin_right = 2.0
+expand_margin_bottom = 2.0
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_rl8ig"]
+content_margin_left = 10.0
+content_margin_right = 10.0
+content_margin_bottom = 5.0
+texture = ExtResource("1_y3vmf")
+texture_margin_top = 0.170035
+region_rect = Rect2(47.5084, 143.391, 48.9632, 17.0162)
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_epunl"]
+content_margin_left = 10.0
+content_margin_right = 10.0
+content_margin_bottom = 5.0
+texture = ExtResource("1_y3vmf")
+region_rect = Rect2(0.720852, 144.599, 46.6095, 15.8749)
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_x7f03"]
+content_margin_left = 10.0
+content_margin_right = 10.0
+content_margin_bottom = 5.0
+texture = ExtResource("1_y3vmf")
+region_rect = Rect2(96.4541, 144.519, 47.0739, 15.8582)
+
+[resource]
+Button/colors/font_color = Color(0.875, 0.875, 0.875, 1)
+Button/colors/font_disabled_color = Color(0.875, 0.875, 0.875, 0.5)
+Button/colors/font_focus_color = Color(0.95, 0.95, 0.95, 1)
+Button/colors/font_hover_color = Color(0.95, 0.95, 0.95, 1)
+Button/colors/font_hover_pressed_color = Color(1, 1, 1, 1)
+Button/colors/font_outline_color = Color(0, 0, 0, 1)
+Button/colors/font_pressed_color = Color(1, 1, 1, 1)
+Button/colors/icon_disabled_color = Color(1, 1, 1, 0.4)
+Button/colors/icon_focus_color = Color(1, 1, 1, 1)
+Button/colors/icon_hover_color = Color(1, 1, 1, 1)
+Button/colors/icon_hover_pressed_color = Color(1, 1, 1, 1)
+Button/colors/icon_normal_color = Color(1, 1, 1, 1)
+Button/colors/icon_pressed_color = Color(1, 1, 1, 1)
+Button/constants/align_to_largest_stylebox = 0
+Button/constants/h_separation = 4
+Button/constants/icon_max_width = 0
+Button/constants/outline_size = 0
+Button/font_sizes/font_size = 16
+Button/fonts/font = ExtResource("1_dq0rs")
+Button/styles/disabled = SubResource("StyleBoxFlat_1kc73")
+Button/styles/focus = SubResource("StyleBoxFlat_3fkty")
+Button/styles/hover = SubResource("StyleBoxTexture_rl8ig")
+Button/styles/normal = SubResource("StyleBoxTexture_epunl")
+Button/styles/pressed = SubResource("StyleBoxTexture_x7f03")
