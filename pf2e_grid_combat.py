@@ -46,6 +46,7 @@ OVERLAY_COLOR = (0, 0, 0, 180)  # Semi-transparent black
 FIGHTER_COLOR = (200, 50, 50)  # Red
 ROGUE_COLOR = (50, 200, 50)    # Green
 WIZARD_COLOR = (50, 50, 200)   # Blue
+CLERIC_COLOR = (200, 200, 50)  # Yellow
 ENEMY_COLOR = (200, 50, 200)   # Purple
 
 # Special Effects Constants
@@ -59,6 +60,8 @@ POWER_ATTACK_COLOR = (255, 50, 50)  # Bright red
 SNEAK_ATTACK_COLOR = (255, 255, 100)  # Yellow
 CRITICAL_COLOR = (255, 215, 0)  # Gold
 MISS_COLOR = (150, 150, 150)  # Gray
+SPIRIT_LINK_COLOR = (255, 200, 100)  # Golden
+SANCTUARY_COLOR = (200, 255, 200)  # Light green
 
 # Animation types
 ANIMATIONS = {
@@ -69,7 +72,9 @@ ANIMATIONS = {
     'heal': {'color': HEAL_COLOR, 'duration': EFFECT_DURATION},
     'shield': {'color': SHIELD_COLOR, 'duration': EFFECT_DURATION},
     'critical': {'color': CRITICAL_COLOR, 'duration': EFFECT_DURATION},
-    'miss': {'color': MISS_COLOR, 'duration': EFFECT_DURATION * 0.5}
+    'miss': {'color': MISS_COLOR, 'duration': EFFECT_DURATION * 0.5},
+    'link': {'color': SPIRIT_LINK_COLOR, 'duration': EFFECT_DURATION},
+    'buff': {'color': SANCTUARY_COLOR, 'duration': EFFECT_DURATION}
 }
 
 # UI Constants
@@ -85,6 +90,7 @@ IMAGE_PATHS = {
     'fighter': 'images/fighter.webp',
     'rogue': 'images/rogue.webp',
     'wizard': 'images/wizard.webp',
+    'cleric': 'images/cleric.webp',
     'goblin': 'images/goblin.webp',
     'ogre': 'images/ogre.webp',
     'wyvern': 'images/wyvern.webp'
@@ -156,6 +162,10 @@ class Effect:
             self._draw_critical(surface, progress)
         elif self.effect_type == "miss":
             self._draw_miss(surface, progress)
+        elif self.effect_type == "link":
+            self._draw_link(surface, progress)
+        elif self.effect_type == "buff":
+            self._draw_buff(surface, progress)
             
     def _draw_magic_missile(self, surface, progress):
         # Draw multiple magic missile particles
@@ -377,6 +387,56 @@ class Effect:
             pygame.draw.line(surface, self.color, (x, y - cross_size + 50), (x, y + cross_size + 50), 2)
             
         surface.blit(circle_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE + 50))
+
+    def _draw_link(self, surface, progress):
+        """Draw the spirit link animation"""
+        center_x = self.start_pos[0] + GRID_SIZE//2
+        center_y = self.start_pos[1] + GRID_SIZE//2
+        
+        # Create link effect
+        effect_surface = pygame.Surface((GRID_SIZE * 4, GRID_SIZE * 4), pygame.SRCALPHA)
+        alpha = int(255 * (1 - progress))
+        
+        # Draw connecting lines
+        for i in range(4):
+            p = max(0, min(1, progress * 4 - i * 0.25))
+            if 0 < p < 1:
+                current_x = self.start_pos[0] + (self.end_pos[0] - self.start_pos[0]) * p
+                current_y = self.start_pos[1] + (self.end_pos[1] - self.start_pos[1]) * p
+                
+                # Draw line with varying thickness
+                line_width = int(GRID_SIZE * (1 - p * 0.5))
+                pygame.draw.line(effect_surface, (*self.color, alpha),
+                               (self.start_pos[0] + GRID_SIZE//2, self.start_pos[1] + GRID_SIZE//2),
+                               (current_x, current_y), line_width)
+        
+        surface.blit(effect_surface, (center_x - GRID_SIZE * 2, center_y - GRID_SIZE * 2 + 50))
+
+    def _draw_buff(self, surface, progress):
+        """Draw the sanctuary animation"""
+        center_x = self.start_pos[0] + GRID_SIZE//2
+        center_y = self.start_pos[1] + GRID_SIZE//2
+        
+        # Create shield effect
+        effect_surface = pygame.Surface((GRID_SIZE * 4, GRID_SIZE * 4), pygame.SRCALPHA)
+        alpha = int(255 * (1 - progress))
+        
+        # Draw multiple shield arcs
+        for i in range(4):
+            start_angle = math.pi * 2 * (i / 4)
+            end_angle = start_angle + math.pi / 2
+            
+            points = []
+            for a in range(int(start_angle * 180/math.pi), int(end_angle * 180/math.pi)):
+                rad = a * math.pi / 180
+                x = GRID_SIZE + math.cos(rad) * GRID_SIZE
+                y = GRID_SIZE + math.sin(rad) * GRID_SIZE
+                points.append((x, y))
+                
+            if len(points) > 1:
+                pygame.draw.lines(effect_surface, (*self.color, alpha), False, points, 3)
+        
+        surface.blit(effect_surface, (center_x - GRID_SIZE * 2, center_y - GRID_SIZE * 2 + 50))
 
 class GridPosition:
     """
@@ -704,7 +764,7 @@ class Character:
             
         # Add Heal action
         if game.actions_left >= 1 and self.potions > 0:
-            actions.append(("Heal", self.position, lambda: self.heal(game)))
+            actions.append(("Potion", self.position, lambda: self.heal(game)))
             
         return actions
         
@@ -1021,7 +1081,7 @@ class Cleric(Character):
             
         # Add Heal action (potion)
         if game.actions_left >= 1 and self.potions > 0:
-            actions.append(("Heal [1]", self.position, lambda: self.heal(game)))
+            actions.append(("Potion [1]", self.position, lambda: self.heal(game)))
         
         # Add spells that need targeting
         if game.selected_target and game.selected_target.is_alive():
@@ -1038,20 +1098,20 @@ class Cleric(Character):
                 actions.append(("Sanctuary [1]", self.position,
                               ("Sanctuary", lambda t: self.sanctuary(target, game))))
             
-            # Add Lesser Heal [1] if in touch range
+            # Add Heal [1] if in touch range
             if distance <= self.LESSER_HEAL_RANGE and game.actions_left >= 1:
-                actions.append(("Lesser Heal [1]", self.position,
-                                ("Lesser Heal (1)", lambda t: self.lesser_heal(target, game, 1))))
+                actions.append(("Heal [1]", self.position,
+                                ("Heal (1)", lambda t: self.lesser_heal(target, game, 1))))
 
-            # Add Lesser Heal [2] if in 30-foot range
+            # Add Heal [2] if in 30-foot range
             if  distance <= self.LESSER_HEAL_UP_RANGE and game.actions_left >= 2:
-                actions.append(("Lesser Heal [2]", self.position,
-                                ("Lesser Heal (2)", lambda t: self.lesser_heal(target, game, 2))))
+                actions.append(("Heal [2]", self.position,
+                                ("Heal (2)", lambda t: self.lesser_heal(target, game, 2))))
 
-            # Add Lesser Heal [3] (AoE, no target check needed)
+            # Add Heal [3] (AoE, no target check needed)
             if game.actions_left >= 3:
-                actions.append(("Lesser Heal [3]", self.position,
-                                ("Lesser Heal (3)", lambda t: self.lesser_heal(target, game, 3))))
+                actions.append(("Heal [3]", self.position,
+                                ("Heal (3)", lambda t: self.lesser_heal(target, game, 3))))
         
         # Always add End Turn action
         actions.append(("End Turn [0]", self.position, lambda: game.next_turn()))
@@ -1304,9 +1364,14 @@ class Game:
             return
             
         # Calculate button layout
-        button_width = 150
+        num_buttons = len(self.available_actions)
+        total_margin = (num_buttons - 1) * BUTTON_MARGIN
+        available_width = WINDOW_WIDTH - 40  # Leave 20px margin on each side
+        button_width = min(150, (available_width - total_margin) // num_buttons)
         button_height = 40
-        total_width = len(self.available_actions) * (button_width + BUTTON_MARGIN) - BUTTON_MARGIN
+        
+        # Calculate total width of all buttons with margins
+        total_width = (button_width * num_buttons) + total_margin
         start_x = (WINDOW_WIDTH - total_width) // 2
         
         # Draw each action button
@@ -1422,7 +1487,8 @@ class Game:
         # Handle right-click targeting
         if right_click and self.current_member_idx < len(self.party):
             current_char = self.party[self.current_member_idx]
-            # Find enemy at clicked position
+            
+            # First check for enemies
             for enemy in self.current_enemies:
                 if enemy.position == clicked_pos and enemy.is_alive():
                     distance = current_char.position.distance_to(enemy.position)
@@ -1432,6 +1498,8 @@ class Game:
                         valid_target = distance <= 1  # Melee range
                     elif isinstance(current_char, Wizard):
                         valid_target = distance <= current_char.MAGIC_MISSILE_RANGE
+                    elif isinstance(current_char, Cleric):
+                        valid_target = distance <= current_char.SPIRIT_LINK_RANGE
                     
                     if valid_target:
                         self.selected_character = current_char
@@ -1441,6 +1509,22 @@ class Game:
                     else:
                         self.add_message(f"{enemy.name} is out of range!")
                     return
+            
+            # Then check for allies (for Cleric spells)
+            if isinstance(current_char, Cleric):
+                for ally in self.party:
+                    if ally != current_char and ally.position == clicked_pos and ally.is_alive():
+                        distance = current_char.position.distance_to(ally.position)
+                        valid_target = distance <= current_char.SPIRIT_LINK_RANGE
+                        
+                        if valid_target:
+                            self.selected_character = current_char
+                            self.selected_target = ally
+                            self.add_message(f"Selected {ally.name} as target. Choose an action.")
+                            self.update_available_actions()
+                        else:
+                            self.add_message(f"{ally.name} is out of range!")
+                        return
             
             # If we clicked empty space or invalid target, clear the target
             self.selected_target = None
@@ -1512,7 +1596,8 @@ class Game:
             self.available_actions = [
                 ("Fighter", GridPosition(2, 3), lambda: self.choose_class("Fighter")),
                 ("Rogue", GridPosition(4, 3), lambda: self.choose_class("Rogue")),
-                ("Wizard", GridPosition(6, 3), lambda: self.choose_class("Wizard"))
+                ("Wizard", GridPosition(6, 3), lambda: self.choose_class("Wizard")),
+                ("Cleric", GridPosition(8, 3), lambda: self.choose_class("Cleric"))
             ]
         elif self.state == "upgrade":
             # Show upgrade options for current character
@@ -1537,13 +1622,16 @@ class Game:
         self.add_message(f"\nDebug: Choosing {choice} class")
         if choice == "Fighter":
             player = Fighter("Valeros")
-            self.party = [player, Rogue("Merisiel"), Wizard("Ezren")]
+            self.party = [player, Rogue("Merisiel"), Wizard("Ezren"), Cleric("Kyra")]
         elif choice == "Rogue":
             player = Rogue("Merisiel")
-            self.party = [player, Fighter("Valeros"), Wizard("Ezren")]
-        else:  # Wizard
+            self.party = [player, Fighter("Valeros"), Wizard("Ezren"), Cleric("Kyra")]
+        elif choice == "Wizard":
             player = Wizard("Ezren")
-            self.party = [player, Fighter("Valeros"), Rogue("Merisiel")]
+            self.party = [player, Fighter("Valeros"), Rogue("Merisiel"), Cleric("Kyra")]
+        elif choice == "Cleric":
+            player = Cleric("Kyra")
+            self.party = [player, Fighter("Valeros"), Rogue("Merisiel"), Wizard("Ezren")]
         
         # Set initial positions for party members
         for i, member in enumerate(self.party):
@@ -2010,6 +2098,24 @@ class Game:
                 return [enemy for enemy in self.current_enemies 
                        if enemy.is_alive() and 
                        current_char.position.distance_to(enemy.position) <= current_char.MAGIC_MISSILE_RANGE]
+        elif isinstance(current_char, Cleric):
+            if "Spirit Link" in action_name:
+                return [ally for ally in self.party 
+                       if ally != current_char and ally.is_alive() and 
+                       current_char.position.distance_to(ally.position) <= current_char.SPIRIT_LINK_RANGE]
+            elif "Sanctuary" in action_name:
+                return [ally for ally in self.party 
+                       if ally != current_char and ally.is_alive() and 
+                       current_char.position.distance_to(ally.position) <= current_char.SANCTUARY_RANGE]
+            elif "Lesser Heal" in action_name:
+                if "1" in action_name:  # Touch range
+                    return [ally for ally in self.party 
+                           if ally != current_char and ally.is_alive() and 
+                           current_char.position.distance_to(ally.position) <= current_char.LESSER_HEAL_RANGE]
+                else:  # 30-foot range
+                    return [ally for ally in self.party 
+                           if ally != current_char and ally.is_alive() and 
+                           current_char.position.distance_to(ally.position) <= current_char.LESSER_HEAL_UP_RANGE]
         elif isinstance(current_char, (Fighter, Rogue)): # Basic melee targeting for now
              return [enemy for enemy in self.current_enemies
                    if enemy.is_alive() and
@@ -2058,7 +2164,7 @@ class Game:
         """Draw the introduction screen with improved spacing and centering"""
         self.screen.fill(BACKGROUND_COLOR)
         
-        title = LARGE_TITLE_FONT.render("Pathfinder 2E Combat Simulator", True, TITLE_COLOR)
+        title = LARGE_TITLE_FONT.render("Pathfinder 2E Grid Combat", True, TITLE_COLOR)
         title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 80))
         self.screen.blit(title, title_rect)
         
@@ -2082,7 +2188,8 @@ class Game:
             ("Party Members:", "section_header"),
             ("Fighter: Tough warrior, excels at melee.", "bullet"),
             ("Rogue: Agile striker, benefits from Off-Guard targets.", "bullet"),
-            ("Wizard: Ranged spellcaster with various arcane powers.", "bullet")
+            ("Wizard: Ranged spellcaster with various arcane powers.", "bullet"),
+            ("Cleric: Divine spellcaster specializing in healing and support.", "bullet")
         ]
 
         # Centered text block
