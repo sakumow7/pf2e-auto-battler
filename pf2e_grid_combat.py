@@ -918,7 +918,7 @@ class Wizard(Character):
                     count = i  # Store count to avoid lambda capture issues
                     actions.append((f"Magic Missile [{i}]", self.position,
                                   (f"Magic Missile ({i})", 
-                                   lambda t: self.magic_missile(target, game, count))))
+                                   lambda t, c=count: self.magic_missile(t, game, c))))
         
         # Add Shield spell (no target needed) if have enough actions and not already up
         if game.actions_left >= 1 and not self.shield_up:
@@ -1080,6 +1080,8 @@ class Game:
         self.available_upgrades = ["Accuracy", "Damage", "Speed", "Vitality"]
         self.wave_summary = None
         self.effects = []  # List to store active effects
+        self.showing_help = False  # New state for help overlay
+        self.help_button_rect = None  # Store help button rectangle
         
         # Create surfaces
         self.grid_surface = pygame.Surface((GRID_COLS * GRID_SIZE, GRID_ROWS * GRID_SIZE))
@@ -1159,6 +1161,16 @@ class Game:
 
     def handle_click(self, pos: Tuple[int, int], right_click: bool = False):
         """Handle mouse click events"""
+        # If help overlay is showing, clicking anywhere closes it
+        if self.showing_help:
+            self.showing_help = False
+            return
+            
+        # Check if help button was clicked
+        if self.help_button_rect and self.help_button_rect.collidepoint(pos):
+            self.showing_help = True
+            return
+            
         # Don't handle clicks during action delay
         if self.action_delay > pygame.time.get_ticks():
             return
@@ -1709,6 +1721,14 @@ class Game:
             if self.state == "combat":
                 self.draw_wave_announcement()
         
+        # Draw help button in all states except help overlay, intro, and class_select
+        if not self.showing_help and self.state not in ["intro", "class_select"]:
+            self.draw_help_button()
+        
+        # Draw help overlay if active
+        if self.showing_help:
+            self.draw_help_overlay()
+        
         pygame.display.flip()
 
     def draw_end_game_screen(self):
@@ -1776,7 +1796,10 @@ class Game:
                 self.draw()
                 self.clock.tick(60)
                 continue
-                
+            # If turn should end after delay, do it now
+            if hasattr(self, '_end_turn_after_delay') and self._end_turn_after_delay:
+                self._end_turn_after_delay = False
+                self.next_turn()
             try:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
@@ -1839,9 +1862,12 @@ class Game:
             if actions_used > 0: 
                 self.action_delay = pygame.time.get_ticks() + 1000
                 self.actions_left = max(0, self.actions_left - actions_used)
+                # Schedule next_turn to happen after the delay if out of actions
                 if self.actions_left <= 0:
-                    self.action_delay += 500 
-                    self.next_turn()
+                    # Instead of calling next_turn() immediately, schedule it after the delay
+                    self._end_turn_after_delay = True
+                else:
+                    self._end_turn_after_delay = False
                 # Check for wave completion only if the action was successful or had an effect
                 # For attacks, success means hit. For other actions, it means they completed.
                 if success: 
@@ -1849,7 +1875,9 @@ class Game:
             elif success: # Action used 0 points but was successful (e.g. selecting Stride)
                  pass # Do nothing specific here, Stride is handled on move click
         
-        self.update_available_actions() # Always update actions after an attempt
+        # Only update available actions if actions_left > 0 or turn is not scheduled to end
+        if self.actions_left > 0 or not (hasattr(self, '_end_turn_after_delay') and self._end_turn_after_delay):
+            self.update_available_actions() # Always update actions after an attempt
         return result
 
     def start_game(self):
@@ -1859,39 +1887,75 @@ class Game:
         self.update_available_actions()
 
     def draw_intro_screen(self):
-        """Draw the introduction screen"""
+        """Draw the introduction screen with improved spacing and centering"""
         self.screen.fill(BACKGROUND_COLOR)
         
         title = LARGE_TITLE_FONT.render("Pathfinder 2E Combat Simulator", True, TITLE_COLOR)
         title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 80))
         self.screen.blit(title, title_rect)
         
-        premise_lines = [
-            "Welcome to the PF2E Grid Combat Simulator!", "",
-            "You lead a party of three adventurers against waves of increasingly",
-            "dangerous foes. Work together, use tactical positioning, and manage",
-            "your actions wisely to survive!", "", "Controls:",
-            "• Left-click: Select characters, actions, and movement squares",
-            "• Right-click: Target enemies for attacks/spells",
-            "• Mouse wheel: Scroll combat log", "", "Combat Rules:",
-            "• Each character has 3 actions per turn.",
-            "• Movement (Stride) costs 1 action.",
-            "• Attacks & Spells usually cost 1 action (some 2 or more).",
-            "• Flanking enemies (ally on opposite side) makes them Off-Guard (-2 AC).", "",
-            "Party Members:",
-            "• Fighter: Tough warrior, excels at melee.",
-            "• Rogue: Agile striker, benefits from Off-Guard targets.",
-            "• Wizard: Ranged spellcaster with various arcane powers."
+        # Intro content as (text, type) tuples for better spacing
+        intro_content = [
+            ("Welcome to the PF2E Grid Combat Simulator!", "header"),
+            ("", "spacer"),
+            ("You lead a party of three adventurers against waves of increasingly dangerous foes. Work together, use tactical positioning, and manage your actions wisely to survive!", "paragraph"),
+            ("", "section_gap"),
+            ("Controls:", "section_header"),
+            ("Left-click: Select characters, actions, and movement squares", "bullet"),
+            ("Right-click: Target enemies for attacks/spells", "bullet"),
+            ("Mouse wheel: Scroll combat log", "bullet"),
+            ("", "section_gap"),
+            ("Combat Rules:", "section_header"),
+            ("Each character has 3 actions per turn.", "bullet"),
+            ("Movement (Stride) costs 1 action.", "bullet"),
+            ("Attacks & Spells usually cost 1 action (some 2 or more).", "bullet"),
+            ("Flanking enemies (ally on opposite side) makes them Off-Guard (-2 AC).", "bullet"),
+            ("", "section_gap"),
+            ("Party Members:", "section_header"),
+            ("Fighter: Tough warrior, excels at melee.", "bullet"),
+            ("Rogue: Agile striker, benefits from Off-Guard targets.", "bullet"),
+            ("Wizard: Ranged spellcaster with various arcane powers.", "bullet")
         ]
-        
+
+        # Centered text block
+        block_width = min(700, WINDOW_WIDTH - 80)
+        x_left = (WINDOW_WIDTH - block_width) // 2
         y = 140
-        for line in premise_lines:
-            is_header = line.endswith(":") and not line.startswith("•")
-            text_surf = TITLE_FONT.render(line, True, TITLE_COLOR) if is_header else FONT.render(line, True, TEXT_COLOR)
-            x_offset = WINDOW_WIDTH//4 if not line.startswith("•") else WINDOW_WIDTH//4 + 20
-            self.screen.blit(text_surf, (x_offset, y))
-            y += 25 if is_header else 20
-            if not line: y += 5 # Extra space for blank lines
+        for text, typ in intro_content:
+            if typ == "header":
+                surf = TITLE_FONT.render(text, True, TITLE_COLOR)
+                self.screen.blit(surf, (x_left, y))
+                y += 38
+            elif typ == "paragraph":
+                # Wrap paragraph text
+                words = text.split()
+                line = ""
+                for word in words:
+                    test_line = line + word + " "
+                    test_surf = FONT.render(test_line, True, TEXT_COLOR)
+                    if test_surf.get_width() > block_width:
+                        surf = FONT.render(line, True, TEXT_COLOR)
+                        self.screen.blit(surf, (x_left, y))
+                        y += 26
+                        line = word + " "
+                    else:
+                        line = test_line
+                if line:
+                    surf = FONT.render(line, True, TEXT_COLOR)
+                    self.screen.blit(surf, (x_left, y))
+                    y += 32
+            elif typ == "section_header":
+                surf = TITLE_FONT.render(text, True, TITLE_COLOR)
+                self.screen.blit(surf, (x_left, y))
+                y += 34
+            elif typ == "bullet":
+                surf = FONT.render("• " + text, True, TEXT_COLOR)
+                self.screen.blit(surf, (x_left + 24, y))
+                y += 26
+            elif typ == "section_gap":
+                y += 24
+            elif typ == "spacer":
+                y += 12
         
         self.draw_action_buttons() # This will draw the single "Start Game" button
         self.screen.blit(self.action_surface, (0, WINDOW_HEIGHT - 100))
@@ -2100,6 +2164,91 @@ class Game:
             (continue_rect, lambda: self.continue_to_next_wave()),
             (quit_rect, lambda: self.quit_game())
         ]
+
+    def draw_help_button(self):
+        """Draw the help button in the top right corner"""
+        button_width = 120
+        button_height = 40
+        self.help_button_rect = pygame.Rect(WINDOW_WIDTH - button_width - 10, 10, button_width, button_height)
+        
+        # Draw button
+        pygame.draw.rect(self.screen, BUTTON_COLOR, self.help_button_rect)
+        pygame.draw.rect(self.screen, TITLE_COLOR, self.help_button_rect, 2)
+        
+        # Draw text
+        text = FONT.render("How to Play", True, TEXT_COLOR)
+        text_rect = text.get_rect(center=self.help_button_rect.center)
+        self.screen.blit(text, text_rect)
+
+    def draw_help_overlay(self):
+        """Draw the help overlay with game instructions (improved layout, more space)"""
+        # Semi-transparent background
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+        overlay.fill((0, 0, 0))
+        overlay.set_alpha(180)
+        self.screen.blit(overlay, (0, 0))
+
+        # Help content (sections, headers, and bullets)
+        help_sections = [
+            ("Controls:", [
+                "Left-click: Select characters, actions, and movement squares",
+                "Right-click: Target enemies for attacks/spells",
+                "Mouse wheel: Scroll combat log"
+            ]),
+            ("Combat Rules:", [
+                "Each character has 3 actions per turn.",
+                "Movement (Stride) costs 1 action",
+                "Attacks & Spells usually cost 1 action (some 2 or more)",
+                "Flanking enemies (ally on opposite side) makes them Off-Guard (-2 AC)."
+            ]),
+            ("Party Members:", [
+                "Fighter: Tough warrior, excels at melee.",
+                "Rogue: Agile striker, benefits from Off-Guard targets.",
+                "Wizard: Ranged spellcaster with various arcane powers."
+            ])
+        ]
+
+        # Box dimensions (increased height for more space)
+        box_width = min(800, WINDOW_WIDTH - 80)
+        box_height = 650  # Increased from 520
+        box_x = (WINDOW_WIDTH - box_width) // 2
+        box_y = (WINDOW_HEIGHT - box_height) // 2
+        box_rect = pygame.Rect(box_x, box_y, box_width, box_height)
+
+        # Draw rounded rectangle for help box
+        pygame.draw.rect(self.screen, (30, 30, 30), box_rect, border_radius=18)
+        pygame.draw.rect(self.screen, TITLE_COLOR, box_rect, 3, border_radius=18)
+
+        # Title
+        title = LARGE_TITLE_FONT.render("How to Play", True, TITLE_COLOR)
+        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, box_y + 45))
+        self.screen.blit(title, title_rect)
+
+        # Draw sections
+        y = box_y + 100
+        section_gap = 38
+        bullet_gap = 28
+        left_margin = box_x + 36
+        for header, bullets in help_sections:
+            # Header
+            header_surf = TITLE_FONT.render(header, True, TITLE_COLOR)
+            self.screen.blit(header_surf, (left_margin, y))
+            y += section_gap
+            # Bullets
+            for bullet in bullets:
+                bullet_surf = FONT.render("• " + bullet, True, TEXT_COLOR)
+                self.screen.blit(bullet_surf, (left_margin + 18, y))
+                y += bullet_gap
+            y += 10  # Extra space after each section
+
+        # Closing instruction at the bottom of the box
+        close_text = FONT.render("Click anywhere to close", True, (200, 200, 200))
+        close_rect = close_text.get_rect(center=(WINDOW_WIDTH//2, box_y + box_height - 36))
+        self.screen.blit(close_text, close_rect)
+
+    def toggle_help(self):
+        """Toggle the help overlay"""
+        self.showing_help = not self.showing_help
 
 if __name__ == "__main__":
     game = Game()
