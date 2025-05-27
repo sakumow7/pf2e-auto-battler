@@ -557,9 +557,11 @@ class Character:
         self.alive = True
         self.off_guard = False
         self.is_enemy = False
+        self.sanctuary = False
         self.speed = 25  # Speed in feet (5 feet per square)
         self.selected_action = None
         self.bonus_damage = 0  # New attribute for damage upgrade
+        self.conditions = {}  # Dictionary: condition name -> duration
         
     def load_sprite(self, sprite_path: str):
         """Load and scale character sprite"""
@@ -576,7 +578,25 @@ class Character:
         return self.hp > 0
     
     def get_ac(self) -> int:
-        return self.base_ac - 2 if self.off_guard else self.base_ac
+        return self.base_ac - 2 if self.off_guard else self.base_ac + 99 if self.sanctuary else self.base_ac
+    
+    def add_condition(self, name: str, duration: int):
+        self.conditions[name] = duration
+        if name == "Sanctuary":
+            self.sanctuary = True
+
+    def update_conditions(self, game: 'Game'):
+        expired = []
+        for condition, duration in self.conditions.items():
+            self.conditions[condition] -= 1
+            if self.conditions[condition] <= 0:
+                expired.append(condition)
+        
+        for condition in expired:
+            del self.conditions[condition]
+            if condition == "Sanctuary":
+                self.sanctuary = False
+                game.add_message(f"{self.name}'s Sanctuary fades.")
     
     def can_move_to(self, new_pos: GridPosition, game: 'Game') -> bool:
         """Check if character can move to the given position"""
@@ -586,6 +606,7 @@ class Character:
         # Check if position is occupied
         for char in game.get_all_characters():
             if char != self and char.position == new_pos:
+                char.update_conditions(game)
                 return False
         
         # Calculate movement cost (diagonal movement costs more)
