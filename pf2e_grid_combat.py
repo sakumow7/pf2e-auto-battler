@@ -108,12 +108,16 @@ class Effect:
         color: RGB color tuple for the effect
         duration: How long the effect lasts in frames
         effect_type: Type of effect (e.g., "magic_missile", "strike", "heal")
+        damage: Optional damage amount to display
+        hit_type: Optional hit type ("hit", "miss", "critical")
     """
     def __init__(self, start_pos: Union['GridPosition', Tuple[int, int]], 
                  end_pos: Union['GridPosition', Tuple[int, int]], 
                  color: Tuple[int, int, int], 
                  duration: int = EFFECT_DURATION, 
-                 effect_type: str = "basic"):
+                 effect_type: str = "basic",
+                 damage: Optional[int] = None,
+                 hit_type: Optional[str] = None):
         # Convert grid positions to pixel coordinates
         if isinstance(start_pos, GridPosition):
             self.start_pos = (start_pos.x * GRID_SIZE, start_pos.y * GRID_SIZE)
@@ -129,6 +133,8 @@ class Effect:
         self.duration = duration
         self.current_frame = -EFFECT_DELAY  # Start with negative frames for delay
         self.effect_type = effect_type
+        self.damage = damage
+        self.hit_type = hit_type
         
         # Calculate trajectory
         self.dx = self.end_pos[0] - self.start_pos[0]
@@ -146,6 +152,7 @@ class Effect:
             
         progress = self.current_frame / self.duration
         
+        # Draw the main effect animation
         if self.effect_type == "magic_missile":
             self._draw_magic_missile(surface, progress)
         elif self.effect_type == "heal":
@@ -167,6 +174,59 @@ class Effect:
         elif self.effect_type == "buff":
             self._draw_buff(surface, progress)
             
+        # Draw damage numbers and hit/miss overlay
+        if self.damage is not None or self.hit_type is not None:
+            self._draw_damage_and_hit(surface, progress)
+            
+    def _draw_damage_and_hit(self, surface: pygame.Surface, progress: float):
+        """Draw damage numbers and hit/miss overlay"""
+        # Calculate position for damage numbers (slightly above target)
+        x = self.end_pos[0] + GRID_SIZE//2
+        y = self.end_pos[1] + GRID_SIZE//2 - 30  # Start above target
+        
+        # Draw hit/miss overlay
+        if self.hit_type:
+            overlay_surface = pygame.Surface((GRID_SIZE * 2, GRID_SIZE * 2), pygame.SRCALPHA)
+            alpha = int(255 * (1 - progress))
+            
+            if self.hit_type == "hit":
+                color = (0, 255, 0, alpha)  # Green for hit
+                text = "HIT!"
+            elif self.hit_type == "miss":
+                color = (255, 0, 0, alpha)  # Red for miss
+                text = "MISS!"
+            elif self.hit_type == "critical":
+                color = (255, 215, 0, alpha)  # Gold for critical
+                text = "CRITICAL!"
+            
+            # Draw text
+            font = pygame.font.SysFont('Arial', 24, bold=True)
+            text_surf = font.render(text, True, color)
+            text_rect = text_surf.get_rect(center=(GRID_SIZE, GRID_SIZE))
+            overlay_surface.blit(text_surf, text_rect)
+            
+            # Draw the overlay
+            surface.blit(overlay_surface, (x - GRID_SIZE, y - GRID_SIZE + 50))
+        
+        # Draw damage numbers
+        if self.damage is not None:
+            # Calculate y position with a slight bounce effect
+            bounce = math.sin(progress * math.pi) * 20
+            damage_y = y - bounce
+            
+            # Create damage text surface
+            font = pygame.font.SysFont('Arial', 24, bold=True)
+            damage_text = f"-{self.damage}"
+            text_surf = font.render(damage_text, True, (255, 50, 50))  # Red color for damage
+            
+            # Calculate alpha based on progress
+            alpha = int(255 * (1 - progress))
+            text_surf.set_alpha(alpha)
+            
+            # Draw the damage text
+            text_rect = text_surf.get_rect(center=(x, damage_y + 50))
+            surface.blit(text_surf, text_rect)
+        
     def _draw_magic_missile(self, surface, progress):
         # Draw multiple magic missile particles
         current_x = self.start_pos[0] + self.dx * progress
@@ -689,8 +749,9 @@ class Character:
         
         if roll == 1:
             game.add_message("Critical Miss!")
-            # Add miss animation
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, effect_type="miss"))
+            # Add miss animation with overlay
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, 
+                                 effect_type="miss", hit_type="miss"))
             target.off_guard = False
             return 1, False
             
@@ -699,17 +760,20 @@ class Character:
         if roll == 20 or total >= target_ac + 10:
             game.add_message("Critical Hit!")
             dmg = sum(random.randint(1, dice_sides) for _ in range(dice_num * 2))
-            # Add critical hit animation
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), CRITICAL_COLOR, effect_type="critical"))
+            # Add critical hit animation with overlay and damage
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), CRITICAL_COLOR, 
+                                 effect_type="critical", damage=dmg, hit_type="critical"))
         elif total >= target_ac:
             game.add_message("Hit!")
             dmg = sum(random.randint(1, dice_sides) for _ in range(dice_num))
-            # Add basic strike animation
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), STRIKE_COLOR, effect_type="strike"))
+            # Add basic strike animation with overlay and damage
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), STRIKE_COLOR, 
+                                 effect_type="strike", damage=dmg, hit_type="hit"))
         else:
             game.add_message("Miss!")
-            # Add miss animation
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, effect_type="miss"))
+            # Add miss animation with overlay
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, 
+                                 effect_type="miss", hit_type="miss"))
             target.off_guard = False
             return 1, False
             
@@ -717,8 +781,9 @@ class Character:
             sa_dmg = random.randint(1, 6)
             dmg += sa_dmg
             game.add_message(f"Sneak Attack! Extra d6: {sa_dmg}")
-            # Add sneak attack animation
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), SNEAK_ATTACK_COLOR, effect_type="sneak_attack"))
+            # Add sneak attack animation with damage
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), SNEAK_ATTACK_COLOR, 
+                                 effect_type="sneak_attack", damage=sa_dmg))
             
         dmg += bonus_damage + self.bonus_damage
         game.add_message(f"Damage Total: {dmg}")
@@ -1087,6 +1152,11 @@ class Cleric(Character):
         if game.selected_target and game.selected_target.is_alive():
             distance = self.position.distance_to(game.selected_target.position)
             target = game.selected_target  # Store target to avoid lambda capture issues
+            
+            # Add Strike if in melee range and have enough actions
+            if distance <= 1 and game.actions_left >= 1:
+                actions.append(("Strike [1]", self.position,
+                              ("Strike", lambda t: self.attack(t, game, dice=(1, 6)))))
             
             # Add Spirit Link if in range and have enough actions
             if distance <= self.SPIRIT_LINK_RANGE and game.actions_left >= 1:
@@ -2099,7 +2169,11 @@ class Game:
                        if enemy.is_alive() and 
                        current_char.position.distance_to(enemy.position) <= current_char.MAGIC_MISSILE_RANGE]
         elif isinstance(current_char, Cleric):
-            if "Spirit Link" in action_name:
+            if "Strike" in action_name:
+                return [enemy for enemy in self.current_enemies
+                       if enemy.is_alive() and
+                       current_char.position.distance_to(enemy.position) <= 1]
+            elif "Spirit Link" in action_name:
                 return [ally for ally in self.party 
                        if ally != current_char and ally.is_alive() and 
                        current_char.position.distance_to(ally.position) <= current_char.SPIRIT_LINK_RANGE]
