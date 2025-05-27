@@ -615,8 +615,6 @@ class Character:
             self.position = new_pos
             return True
         else:
-            if hasattr(game, 'add_message'):
-                game.add_message(f"[DEBUG] {self.name} tried to move to occupied square {new_pos.x},{new_pos.y}")
             return False
     
     def draw(self, surface: pygame.Surface, game: Optional['Game'] = None):
@@ -761,13 +759,23 @@ class Character:
         dice_num, dice_sides = dice
         if roll == 20 or total >= target_ac + 10:
             game.add_message("Critical Hit!")
-            dmg = sum(random.randint(1, dice_sides) for _ in range(dice_num * 2))
+            # Roll damage dice and show individual rolls
+            damage_rolls = [random.randint(1, dice_sides) for _ in range(dice_num * 2)]
+            dmg = sum(damage_rolls)
+            # Show the dice rolls
+            dice_str = " + ".join(str(roll) for roll in damage_rolls)
+            game.add_message(f"Damage: {dice_num * 2}d{dice_sides} = [{dice_str}] = {dmg}")
             # Add critical hit animation with overlay and damage
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), CRITICAL_COLOR, 
                                  effect_type="critical", damage=dmg, hit_type="critical"))
         elif total >= target_ac:
             game.add_message("Hit!")
-            dmg = sum(random.randint(1, dice_sides) for _ in range(dice_num))
+            # Roll damage dice and show individual rolls
+            damage_rolls = [random.randint(1, dice_sides) for _ in range(dice_num)]
+            dmg = sum(damage_rolls)
+            # Show the dice rolls
+            dice_str = " + ".join(str(roll) for roll in damage_rolls)
+            game.add_message(f"Damage: {dice_num}d{dice_sides} = [{dice_str}] = {dmg}")
             # Add basic strike animation with overlay and damage
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), STRIKE_COLOR, 
                                  effect_type="strike", damage=dmg, hit_type="hit"))
@@ -779,10 +787,11 @@ class Character:
             target.off_guard = False
             return 1, False
             
-        if sneak_attack or target.off_guard:
+        # Only Rogues get sneak attack damage
+        if sneak_attack and isinstance(self, Rogue):
             sa_dmg = random.randint(1, 6)
             dmg += sa_dmg
-            game.add_message(f"Sneak Attack! Extra d6: {sa_dmg}")
+            game.add_message(f"Sneak Attack! Extra d6: [{sa_dmg}]")
             # Add sneak attack animation with damage
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), SNEAK_ATTACK_COLOR, 
                                  effect_type="sneak_attack", damage=sa_dmg))
@@ -968,7 +977,6 @@ class Rogue(Character):
             
         sneak = target.off_guard
         used, hit = self.attack(target, game, dice=(1, 6), sneak_attack=sneak)
-        game.actions_left -= used  # Consume action regardless of hit
         if hit and random.random() < 0.5:
             target.off_guard = True
             game.add_message(f"{target.name} is now Off-Guard until their next turn!")
@@ -1088,8 +1096,9 @@ class Wizard(Character):
         # Add magic missile animation for each missile
         for i in range(action_count):
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MAGIC_MISSILE_COLOR, effect_type="magic_missile"))
-            dmg = random.randint(1, 4) + 1
-            game.add_message(f"Magic Missile #{i+1}: {dmg} force damage")
+            dice_roll = random.randint(1, 4)
+            dmg = dice_roll + 1
+            game.add_message(f"Magic Missile #{i+1}: d4 + 1 = [{dice_roll}] + 1 = {dmg} force damage")
             target.take_damage(dmg, game)
             
         if self.shield_up:
@@ -1247,7 +1256,9 @@ class Cleric(Character):
 
         if action_count == 1:
             # 1-action: touch only
-            heal_amount = random.randint(1, 8)
+            dice_roll = random.randint(1, 8)
+            heal_amount = dice_roll
+            game.add_message(f"Healing: d8 = [{dice_roll}] = {heal_amount}")
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
             old_hp = target.hp
             target.hp = min(target.hp + heal_amount, target.max_hp)
@@ -1256,7 +1267,9 @@ class Cleric(Character):
 
         elif action_count == 2:
             # 2-actions: ranged + bonus healing
-            heal_amount = random.randint(1, 8) + 8
+            dice_roll = random.randint(1, 8)
+            heal_amount = dice_roll + 8
+            game.add_message(f"Healing: d8 + 8 = [{dice_roll}] + 8 = {heal_amount}")
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
             old_hp = target.hp
             target.hp = min(target.hp + heal_amount, target.max_hp)
@@ -1265,7 +1278,9 @@ class Cleric(Character):
 
         else:
             # 3-actions: AoE to all friendlies within 30 feet
-            heal_amount = random.randint(1, 8)
+            dice_roll = random.randint(1, 8)
+            heal_amount = dice_roll
+            game.add_message(f"Healing: d8 = [{dice_roll}] = {heal_amount}")
             game.add_message(f"A wave of healing energy pulses outward from {self.name}, restoring {heal_amount} HP to all allies in range!")
 
             for char in game.party:
@@ -1387,6 +1402,9 @@ class Game:
         self.ai_actions_remaining = 0  # Actions left for current AI character
         self._schedule_next_ai_action = False  # Flag to schedule next AI action after delay
         self._end_turn_after_delay = False  # Flag to end turn after delay
+        self.current_enemy_idx = 0  # Current enemy index for turn management
+        self.enemy_actions_remaining = 0  # Actions left for current enemy
+        self._schedule_next_enemy_action = False  # Flag to schedule next enemy action after delay
         
         # Create surfaces
         self.grid_surface = pygame.Surface((GRID_COLS * GRID_SIZE, GRID_ROWS * GRID_SIZE))
@@ -1699,7 +1717,6 @@ class Game:
     
     def choose_class(self, choice: str):
         """Handle class selection"""
-        self.add_message(f"\nDebug: Choosing {choice} class")
         if choice == "Fighter":
             player = Fighter("Valeros")
             self.party = [player, Rogue("Merisiel"), Wizard("Ezren"), Cleric("Kyra")]
@@ -1736,21 +1753,16 @@ class Game:
         
         self.wave_number = 0  # Explicitly set wave number to 0
         self.state = "combat"
-        self.add_message("Debug: Starting first battle")
         self.start_battle()
 
     def start_battle(self):
         """Start a new battle or the next wave"""
-        self.add_message(f"\nDebug: Starting battle. Current wave: {self.wave_number}")
-        
         if not any(m.is_alive() for m in self.party):
-            self.add_message("Debug: No party members alive, ending battle")
             self.end_battle()
             return
             
         # Always increment wave number at the start of a new battle
         self.wave_number += 1
-        self.add_message(f"Debug: Incremented wave number to {self.wave_number}")
 
         # Reset party member positions at the start of each wave
         for i, member in enumerate(self.party):
@@ -1762,25 +1774,20 @@ class Game:
             num_enemies_this_wave = 3
             self.show_wave_announcement("Wave 1: Goblins")
             positions = [(GRID_COLS - 4, 1), (GRID_COLS - 2, 1), (GRID_COLS - 1, 2)]
-            self.add_message("Debug: Setting up Wave 1 - Goblins")
         elif self.wave_number == 2: # Second wave (Ogres)
             num_enemies_this_wave = 2
             self.show_wave_announcement("Wave 2: Ogres' Fury")
             positions = [(GRID_COLS - 3, 1), (GRID_COLS - 1, 1)]
-            self.add_message("Debug: Setting up Wave 2 - Ogres")
         elif self.wave_number == 3: # Third wave (Wyvern Boss)
             num_enemies_this_wave = 1
             self.show_wave_announcement("Wave 3: The Wyvern Lord!")
             positions = [(GRID_COLS // 2, 1)]
-            self.add_message("Debug: Setting up Wave 3 - Wyvern")
         else:
-            self.add_message(f"Debug: Invalid wave number {self.wave_number}, ending battle")
             self.end_battle(victory=True)
             return
 
         # Check if we have enough enemies for this wave
         if len(self.enemies) < num_enemies_this_wave:
-            self.add_message(f"Debug: Not enough enemies for wave {self.wave_number}. Needed {num_enemies_this_wave}, have {len(self.enemies)}")
             self.end_battle(victory=True)
             return
 
@@ -1809,12 +1816,14 @@ class Game:
         self.actions_left = 3
         
         if self.current_member_idx >= len(self.party):
-            # Enemy's turn
-            for enemy in self.current_enemies:
-                if enemy.is_alive():
-                    self.current_enemy = enemy
-                    self.handle_enemy_turn()
-            self.current_member_idx = 0
+            # Enemy's turn - start with first alive enemy
+            alive_enemies = [enemy for enemy in self.current_enemies if enemy.is_alive()]
+            if alive_enemies:
+                self.current_enemy = alive_enemies[0]
+                self.current_enemy_idx = 0
+                self.handle_enemy_turn(self.current_enemy)
+            else:
+                self.current_member_idx = 0
             
             # Reset any per-turn effects
             for char in self.party:
@@ -1835,41 +1844,101 @@ class Game:
         
         self.update_available_actions()
     
-    def handle_enemy_turn(self):
-        """Handle enemy AI turn"""
-        if not self.current_enemy or not self.current_enemy.is_alive():
+    def handle_enemy_turn(self, enemy):
+        """Handle enemy AI turn with delayed actions"""
+        if not enemy or not enemy.is_alive():
+            self.next_enemy_turn()
             return
             
-        self.add_message(f"\n{self.current_enemy.name}'s turn!")
-        actions = 3
+        self.add_message(f"\n{enemy.name}'s turn!")
         
-        while actions > 0:
-            # Find closest living party member
-            targets = [(char, self.current_enemy.position.distance_to(char.position))
-                      for char in self.party if char.is_alive()]
-            if not targets:
-                break
-                
-            target, distance = min(targets, key=lambda x: x[1])
+        # Set up enemy turn state
+        self.current_enemy = enemy
+        self.enemy_actions_remaining = 3
+        
+        # Start the first enemy action
+        self.perform_next_enemy_action()
+
+    def perform_next_enemy_action(self):
+        """Perform the next enemy action with appropriate delay"""
+        if not self.current_enemy or not self.current_enemy.is_alive() or self.enemy_actions_remaining <= 0:
+            # Enemy turn is complete, move to next enemy
+            self.next_enemy_turn()
+            return
+        
+        enemy = self.current_enemy
+        
+        # Find closest living party member
+        targets = [(char, enemy.position.distance_to(char.position))
+                  for char in self.party if char.is_alive()]
+        if not targets:
+            # No valid targets, end turn
+            self.next_enemy_turn()
+            return
             
-            if distance <= 1:
-                # Attack if in range
-                used, _ = self.current_enemy.attack(target, self)
-                actions -= used
-            else:
-                # Move towards target
-                moves = self.current_enemy.get_valid_moves(self)
-                if moves:
-                    best_move = min(moves, 
-                                  key=lambda pos: pos.distance_to(target.position))
-                    if self.current_enemy.move_to(best_move, self):
-                        actions -= 1
-                else:
-                    break
+        target, distance = min(targets, key=lambda x: x[1])
         
-        # Check if battle is over
-        if not any(char.is_alive() for char in self.party):
-            self.end_battle()
+        action_performed = False
+        
+        if distance <= 1:
+            # Attack if in range
+            used, _ = enemy.attack(target, self)
+            self.enemy_actions_remaining -= used
+            action_performed = True
+        else:
+            # Move towards target
+            moves = enemy.get_valid_moves(self)
+            if moves:
+                best_move = min(moves, 
+                              key=lambda pos: pos.distance_to(target.position))
+                if enemy.move_to(best_move, self):
+                    self.enemy_actions_remaining -= 1
+                    action_performed = True
+            else:
+                # No valid moves, end turn
+                self.next_enemy_turn()
+                return
+        
+        # If an action was performed, set a delay before the next action
+        if action_performed:
+            self.action_delay = pygame.time.get_ticks() + 1500  # 1.5 second delay between enemy actions
+            # Schedule the next enemy action
+            self._schedule_next_enemy_action = True
+        else:
+            # No valid action found, end turn
+            self.next_enemy_turn()
+
+    def next_enemy_turn(self):
+        """Move to the next enemy or end enemy phase"""
+        alive_enemies = [enemy for enemy in self.current_enemies if enemy.is_alive()]
+        self.current_enemy_idx += 1
+        
+        if self.current_enemy_idx < len(alive_enemies):
+            # Move to next enemy
+            self.current_enemy = alive_enemies[self.current_enemy_idx]
+            self.handle_enemy_turn(self.current_enemy)
+        else:
+            # All enemies have acted, end enemy phase
+            self.current_member_idx = 0
+            self.current_enemy = None
+            self.current_enemy_idx = 0
+            
+            # Reset any per-turn effects
+            for char in self.party:
+                if isinstance(char, Wizard):
+                    if char.shield_up:
+                        char.shield_up = False
+                        char.base_ac -= 2
+                        self.add_message(f"{char.name}'s Shield spell fades")
+            
+            # Check if battle is over
+            if not any(char.is_alive() for char in self.party):
+                self.end_battle()
+                return
+            
+            # Check if wave is complete after enemy turns
+            self.check_wave_complete()
+            self.update_available_actions()
 
     def end_battle(self, victory=False):
         """End the current battle or game"""
@@ -2005,10 +2074,22 @@ class Game:
                 current = self.party[self.current_member_idx]
                 color = current.color
                 text = f"{current.name}'s Turn"
+                # Draw action points for party members
+                action_text = f"Actions: {self.actions_left}"
+                action_surf = FONT.render(action_text, True, TEXT_COLOR)
+                self.screen.blit(action_surf, (220, 10))
             else:
-                current = self.current_enemy
-                color = ENEMY_COLOR
-                text = f"Enemy Turn"
+                # Enemy turn
+                if self.current_enemy:
+                    color = ENEMY_COLOR
+                    text = f"{self.current_enemy.name}'s Turn"
+                    # Draw action points for current enemy
+                    action_text = f"Actions: {self.enemy_actions_remaining}"
+                    action_surf = FONT.render(action_text, True, TEXT_COLOR)
+                    self.screen.blit(action_surf, (220, 10))
+                else:
+                    color = ENEMY_COLOR
+                    text = "Enemy Turn"
             
             # Draw colored border
             pygame.draw.rect(indicator_surface, color, indicator_surface.get_rect(), 2)
@@ -2017,12 +2098,6 @@ class Game:
             text_surf = FONT.render(text, True, TEXT_COLOR)
             text_rect = text_surf.get_rect(center=indicator_surface.get_rect().center)
             indicator_surface.blit(text_surf, text_rect)
-            
-            # Draw action points
-            if self.current_member_idx < len(self.party):
-                action_text = f"Actions: {self.actions_left}"
-                action_surf = FONT.render(action_text, True, TEXT_COLOR)
-                self.screen.blit(action_surf, (220, 10))
             
             self.screen.blit(indicator_surface, (10, 10))
     
@@ -2149,6 +2224,12 @@ class Game:
             if hasattr(self, '_schedule_next_ai_action') and self._schedule_next_ai_action:
                 self._schedule_next_ai_action = False
                 self.perform_next_ai_action()
+                continue
+            
+            # Check if we need to perform the next enemy action after delay
+            if hasattr(self, '_schedule_next_enemy_action') and self._schedule_next_enemy_action:
+                self._schedule_next_enemy_action = False
+                self.perform_next_enemy_action()
                 continue
             
             # If turn should end after delay, do it now
@@ -2393,7 +2474,6 @@ class Game:
         if self.state != "combat": return False # Only check during combat
 
         alive_enemies = [e for e in self.current_enemies if e.is_alive()]
-        self.add_message(f"\nChecking wave completion: Wave {self.wave_number}, {len(alive_enemies)} enemies remaining")
         
         if not alive_enemies:
             if self.wave_number == 3: # Just completed the final wave (Wyvern)
@@ -2633,9 +2713,6 @@ class Game:
         """Handle AI-controlled party member's turn"""
         if not char.is_alive():
             return
-        # Debug: Print all character positions at the start of the turn
-        positions = [(c.name, c.position.x, c.position.y) for c in self.get_all_characters() if c.is_alive()]
-        self.add_message(f"[DEBUG] Positions at start of {char.name}'s turn: {positions}")
         
         self.add_message(f"\n{char.name}'s turn!")
         
@@ -2678,7 +2755,7 @@ class Game:
             for i in range(len(chars)):
                 for j in range(i+1, len(chars)):
                     if chars[i].position == chars[j].position:
-                        self.add_message(f"[DEBUG] OVERLAP: {chars[i].name} and {chars[j].name} at {chars[i].position.x},{chars[i].position.y}")
+                        pass  # Overlap detected but no debug message
         
         action_performed = False
         
