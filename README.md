@@ -4,14 +4,15 @@ A Pathfinder 2nd Edition inspired auto-battler game built with Python and Pygame
 
 ## Features
 
-- **Three Playable Classes:**
+- **Four Playable Classes:**
   - Fighter: Specializes in powerful melee attacks and defensive abilities
   - Rogue: Masters of positioning and sneak attacks
   - Wizard: Controls the battlefield with powerful spells and magical abilities
+  - Cleric: Supports the party with spells that manipulate health
 
 - **Tactical Grid Combat:**
   - Turn-based combat system
-  - 16x12 grid battlefield
+  - 16x8 grid battlefield
   - Strategic positioning and movement
   - Flanking mechanics
 
@@ -41,7 +42,8 @@ python pf2e_grid_combat.py
 2. Select your character class:
    - Fighter: High HP and armor, specializes in Power Attacks
    - Rogue: Agile character focusing on positioning and Sneak Attacks
-   - Wizard: Ranged spellcaster with Magic Missile and Shield spells
+   - Wizard: Ranged spellcaster with Magic Missile, Arcane Blast, and Shield spells
+   - Cleric: Supportive spellcaster with Spirit Link, Sanctuary, and Lesser Heal spells.
 
 3. Combat Controls:
    - Left-click to select your character and view available actions
@@ -80,6 +82,11 @@ python pf2e_grid_combat.py
 - Arcane Blast for reliable damage
 - Magic Missile for guaranteed hits
 - Shield spell for defensive options
+
+**Cleric**
+- Sanctuary to nullify damage
+- Spirit Link to equalize HP between the Target and Cleric
+- Lesser Heal to restore HP
 
 ### Combat System
 - Turn-based tactical combat
