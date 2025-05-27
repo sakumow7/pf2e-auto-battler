@@ -1112,7 +1112,7 @@ class Cleric(Character):
     """
     Cleric class character specializing in supportive magical spells.
     Features various spells with different ranges and effects.
-    Special abilities: Heal, Sanctuary, and Spirit Link spell.
+    Special abilities: Lesser Heal, Sanctuary, and Spirit Link spell.
     
     Starting Stats:
         HP: 32
