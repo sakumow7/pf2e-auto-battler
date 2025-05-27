@@ -22,7 +22,7 @@ WINDOW_HEIGHT = int(SCREEN_HEIGHT * 0.95)
 
 # Grid dimensions (number of cells)
 GRID_COLS = 16
-GRID_ROWS = 12
+GRID_ROWS = 8
 
 # Calculate grid size based on window dimensions and desired grid layout
 # We subtract 100 from height to account for UI elements (50px top bar + 50px bottom margin)
@@ -31,6 +31,9 @@ GRID_SIZE = min((WINDOW_WIDTH) // GRID_COLS, (WINDOW_HEIGHT - 100) // GRID_ROWS)
 # Recalculate window size to fit grid exactly
 WINDOW_WIDTH = GRID_COLS * GRID_SIZE
 WINDOW_HEIGHT = (GRID_ROWS * GRID_SIZE) + 100  # Add 100 for UI elements
+
+# Add near the top, after GRID_SIZE and before colors
+GRID_TOP = 50  # Space at the top for turn indicator, etc.
 
 # Colors
 BACKGROUND_COLOR = (40, 40, 40)
@@ -521,9 +524,9 @@ class GridPosition:
         """Calculate grid distance (in squares) to another position"""
         return max(abs(self.x - other.x), abs(self.y - other.y))
     
-    def get_pixel_pos(self) -> Tuple[int, int]:
+    def get_pixel_pos(self, y_offset=0) -> Tuple[int, int]:
         """Convert grid position to pixel coordinates"""
-        return (self.x * GRID_SIZE, self.y * GRID_SIZE)
+        return (self.x * GRID_SIZE, self.y * GRID_SIZE + y_offset)
 
 class Character:
     """
@@ -611,58 +614,57 @@ class Character:
         if self.can_move_to(new_pos, game):
             self.position = new_pos
             return True
-        return False
+        else:
+            if hasattr(game, 'add_message'):
+                game.add_message(f"[DEBUG] {self.name} tried to move to occupied square {new_pos.x},{new_pos.y}")
+            return False
     
     def draw(self, surface: pygame.Surface, game: Optional['Game'] = None):
         if not self.alive:
             return
-        
-        x, y = self.position.get_pixel_pos()
-        
+        x = self.position.x * GRID_SIZE
+        y = self.position.y * GRID_SIZE  # Remove GRID_TOP - it's added when grid_surface is blitted
         # Draw active turn indicator if this is the current character
         if (game and not self.is_enemy and 
             game.state == "combat" and 
             game.current_member_idx < len(game.party) and 
             game.party[game.current_member_idx] == self):
-            # Draw pulsing highlight around active character
-            pulse = abs(math.sin(pygame.time.get_ticks() / 500))  # Pulsing effect
+            pulse = abs(math.sin(pygame.time.get_ticks() / 500))
             highlight_color = (255, 255, 255, int(100 + 155 * pulse))
             highlight_surface = pygame.Surface((GRID_SIZE + 8, GRID_SIZE + 8), pygame.SRCALPHA)
             pygame.draw.rect(highlight_surface, highlight_color, 
                            (0, 0, GRID_SIZE + 8, GRID_SIZE + 8), 4, border_radius=4)
             surface.blit(highlight_surface, (x - 4, y - 4))
-        
         # Draw character sprite or fallback shape
         if self.sprite:
-            surface.blit(self.sprite, (x, y))
+            # Always scale sprite to fit grid square
+            sprite = pygame.transform.scale(self.sprite, (GRID_SIZE, GRID_SIZE))
+            surface.blit(sprite, (x, y))
         else:
             if self.is_enemy:
-                # Draw enemy as diamond
                 points = [
-                    (x + GRID_SIZE//2, y),  # Top
-                    (x + GRID_SIZE, y + GRID_SIZE//2),  # Right
-                    (x + GRID_SIZE//2, y + GRID_SIZE),  # Bottom
-                    (x, y + GRID_SIZE//2)  # Left
+                    (x + GRID_SIZE//2, y),
+                    (x + GRID_SIZE, y + GRID_SIZE//2),
+                    (x + GRID_SIZE//2, y + GRID_SIZE),
+                    (x, y + GRID_SIZE//2)
                 ]
                 pygame.draw.polygon(surface, self.color, points)
                 pygame.draw.polygon(surface, (255, 255, 255), points, 2)
             else:
-                # Draw hero as circle
                 pygame.draw.circle(surface, self.color, 
                                  (x + GRID_SIZE//2, y + GRID_SIZE//2), 
                                  GRID_SIZE//2)
                 pygame.draw.circle(surface, (255, 255, 255),
                                  (x + GRID_SIZE//2, y + GRID_SIZE//2),
                                  GRID_SIZE//2, 2)
-        
-        # Draw health bar
+        # Draw health bar below the character instead of above
         health_percent = self.hp / self.max_hp
         bar_width = GRID_SIZE * health_percent
         pygame.draw.rect(surface, (100, 0, 0),
-                        (x, y - 10, GRID_SIZE, 5))
+                        (x, y + GRID_SIZE + 2, GRID_SIZE, 5))
         if health_percent > 0:
             pygame.draw.rect(surface, (0, 255, 0),
-                           (x, y - 10, bar_width, 5))
+                           (x, y + GRID_SIZE + 2, bar_width, 5))
 
     def is_flanking(self, target: 'Character', game: 'Game') -> bool:
         """Check if this character is flanking the target with an ally"""
@@ -1380,6 +1382,11 @@ class Game:
         self.effects = []  # List to store active effects
         self.showing_help = False  # New state for help overlay
         self.help_button_rect = None  # Store help button rectangle
+        self.ai_action_queue = []  # Queue of AI actions to perform
+        self.ai_current_char = None  # Current AI character taking actions
+        self.ai_actions_remaining = 0  # Actions left for current AI character
+        self._schedule_next_ai_action = False  # Flag to schedule next AI action after delay
+        self._end_turn_after_delay = False  # Flag to end turn after delay
         
         # Create surfaces
         self.grid_surface = pygame.Surface((GRID_COLS * GRID_SIZE, GRID_ROWS * GRID_SIZE))
@@ -1416,13 +1423,16 @@ class Game:
     def add_message(self, message: str):
         """Add a message to the message log"""
         self.messages.append(message)
+        print(message)  # Also print to terminal/console
         # Automatically scroll to bottom when new message arrives
         self.message_scroll = max(0, len(self.messages) - 8)  # Show last 8 messages
     
     def get_all_characters(self) -> List['Character']:
-        """Get list of all characters in the game"""
+        """Get list of all characters in the game that are actually on the grid"""
         chars = self.party.copy()
-        chars.extend(self.enemies)
+        # Only include enemies that are positioned on the grid (not at -1, -1)
+        chars.extend([enemy for enemy in self.current_enemies 
+                     if enemy.position.x >= 0 and enemy.position.y >= 0])
         return chars
     
     def draw_action_buttons(self):
@@ -1703,11 +1713,11 @@ class Game:
             player = Cleric("Kyra")
             self.party = [player, Fighter("Valeros"), Rogue("Merisiel"), Wizard("Ezren")]
         
-        # Set initial positions for party members
+        # Set initial positions for party members higher up the grid
         for i, member in enumerate(self.party):
-            member.position = GridPosition(i + 1, GRID_ROWS - 2)
+            member.position = GridPosition(i + 1, GRID_ROWS - 5)
         
-        # Create enemies for all waves
+        # Create enemies for all waves but position them OFF-GRID initially
         self.enemies = [
             # Wave 1
             Enemy("Goblin", hp=20, ac=15, attack_bonus=5),
@@ -1719,6 +1729,10 @@ class Game:
             # Wave 3 (Boss)
             Enemy("Wyvern", hp=55, ac=19, attack_bonus=9, damage_dice=(2, 8))
         ]
+        
+        # Position all enemies OFF-GRID initially
+        for enemy in self.enemies:
+            enemy.position = GridPosition(-1, -1)  # Off-grid position
         
         self.wave_number = 0  # Explicitly set wave number to 0
         self.state = "combat"
@@ -1741,7 +1755,7 @@ class Game:
         # Reset party member positions at the start of each wave
         for i, member in enumerate(self.party):
             if member.is_alive():
-                member.position = GridPosition(i + 1, GRID_ROWS - 2)
+                member.position = GridPosition(i + 1, GRID_ROWS - 5)
 
         # Determine number of enemies for the current wave
         if self.wave_number == 1: # First wave (Goblins)
@@ -1812,6 +1826,12 @@ class Game:
             
             # Check if wave is complete after enemy turns
             self.check_wave_complete()
+        else:
+            # Check if current character is AI-controlled (not the player's chosen class)
+            current_char = self.party[self.current_member_idx]
+            if current_char != self.party[0]:  # If not the player's character
+                self.handle_ai_turn(current_char)
+                # Don't call next_turn() here - let the AI system handle turn progression
         
         self.update_available_actions()
     
@@ -1953,16 +1973,20 @@ class Game:
     
     def draw_messages(self):
         """Draw the message log with scrolling"""
-        self.message_surface.fill((30, 30, 30))
-        
+        # Draw a clear, visible message log box above the action buttons
+        log_height = 220
+        self.message_surface = pygame.Surface((WINDOW_WIDTH - 40, log_height))
+        self.message_surface.fill((20, 20, 20))  # Dark background for contrast
+        pygame.draw.rect(self.message_surface, (255, 200, 100), self.message_surface.get_rect(), 2)  # Golden border
+
         # Draw scroll indicators if needed
         if self.message_scroll > 0:
             text = FONT.render("▲ More", True, TEXT_COLOR)
             self.message_surface.blit(text, (5, 0))
         if self.message_scroll < len(self.messages) - 8:
             text = FONT.render("▼ More", True, TEXT_COLOR)
-            self.message_surface.blit(text, (5, 175))
-        
+            self.message_surface.blit(text, (5, log_height - 25))
+
         # Draw visible messages
         y = 25
         visible_messages = self.messages[self.message_scroll:self.message_scroll + 8]
@@ -2024,37 +2048,35 @@ class Game:
         else:  # Combat or Class Select
             # Draw combat grid
             self.draw_grid()
-            self.screen.blit(self.grid_surface, (0, 50))
-            
+            self.screen.blit(self.grid_surface, (0, GRID_TOP))
+
             # Draw turn indicator
             self.draw_turn_indicator()
-            
-            # Draw message log
+
+            # Draw message log (now always visible and clear)
             self.draw_messages()
-            self.screen.blit(self.message_surface, 
-                            (20, 50 + (GRID_ROWS * GRID_SIZE) + 20))
-            
+            self.screen.blit(self.message_surface, (20, WINDOW_HEIGHT - 320))  # Place above action buttons
+
             # Draw action buttons
             self.draw_action_buttons()
-            self.screen.blit(self.action_surface, 
-                            (0, WINDOW_HEIGHT - 100))
-            
+            self.screen.blit(self.action_surface, (0, WINDOW_HEIGHT - 100))
+
             # Draw all active effects
             for effect in self.effects:
                 effect.draw(self.screen)
-            
+
             # Draw wave announcement overlay if active
             if self.state == "combat":
                 self.draw_wave_announcement()
-        
+
         # Draw help button in all states except help overlay, intro, and class_select
         if not self.showing_help and self.state not in ["intro", "class_select"]:
             self.draw_help_button()
-        
+
         # Draw help overlay if active
         if self.showing_help:
             self.draw_help_overlay()
-        
+
         pygame.display.flip()
 
     def draw_end_game_screen(self):
@@ -2122,10 +2144,18 @@ class Game:
                 self.draw()
                 self.clock.tick(60)
                 continue
+            
+            # Check if we need to perform the next AI action after delay
+            if hasattr(self, '_schedule_next_ai_action') and self._schedule_next_ai_action:
+                self._schedule_next_ai_action = False
+                self.perform_next_ai_action()
+                continue
+            
             # If turn should end after delay, do it now
             if hasattr(self, '_end_turn_after_delay') and self._end_turn_after_delay:
                 self._end_turn_after_delay = False
                 self.next_turn()
+            
             try:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
@@ -2598,6 +2628,205 @@ class Game:
     def toggle_help(self):
         """Toggle the help overlay"""
         self.showing_help = not self.showing_help
+
+    def handle_ai_turn(self, char: Character):
+        """Handle AI-controlled party member's turn"""
+        if not char.is_alive():
+            return
+        # Debug: Print all character positions at the start of the turn
+        positions = [(c.name, c.position.x, c.position.y) for c in self.get_all_characters() if c.is_alive()]
+        self.add_message(f"[DEBUG] Positions at start of {char.name}'s turn: {positions}")
+        
+        self.add_message(f"\n{char.name}'s turn!")
+        
+        # Set up AI turn state
+        self.ai_current_char = char
+        self.ai_actions_remaining = 3
+        self.ai_action_queue = []
+        
+        # Start the first AI action
+        self.perform_next_ai_action()
+
+    def perform_next_ai_action(self):
+        """Perform the next AI action with appropriate delay"""
+        if not self.ai_current_char or not self.ai_current_char.is_alive() or self.ai_actions_remaining <= 0:
+            # AI turn is complete, move to next turn
+            self.ai_current_char = None
+            self.ai_actions_remaining = 0
+            self.next_turn()
+            return
+        
+        char = self.ai_current_char
+        
+        def get_unoccupied_moves(character, target_pos):
+            all_moves = character.get_valid_moves(self)
+            unoccupied = []
+            for pos in all_moves:
+                occupied = False
+                for other in self.get_all_characters():
+                    if other != character and other.position == pos and other.is_alive():
+                        occupied = True
+                        break
+                if not occupied:
+                    unoccupied.append(pos)
+            if unoccupied:
+                return sorted(unoccupied, key=lambda p: p.distance_to(target_pos))
+            return []
+        
+        def check_for_overlap():
+            chars = [c for c in self.get_all_characters() if c.is_alive()]
+            for i in range(len(chars)):
+                for j in range(i+1, len(chars)):
+                    if chars[i].position == chars[j].position:
+                        self.add_message(f"[DEBUG] OVERLAP: {chars[i].name} and {chars[j].name} at {chars[i].position.x},{chars[i].position.y}")
+        
+        action_performed = False
+        
+        if isinstance(char, Fighter):
+            targets = [(enemy, char.position.distance_to(enemy.position))
+                      for enemy in self.current_enemies if enemy.is_alive()]
+            if targets:
+                target, distance = min(targets, key=lambda x: x[1])
+                if distance <= 1:
+                    if self.ai_actions_remaining >= 2:
+                        used, _ = char.power_attack(target, self)
+                        self.ai_actions_remaining -= used
+                        action_performed = True
+                    else:
+                        used, _ = char.attack(target, self, dice=(1, 10))
+                        self.ai_actions_remaining -= used
+                        action_performed = True
+                else:
+                    moves = get_unoccupied_moves(char, target.position)
+                    if moves:
+                        best_move = moves[0]
+                        if char.move_to(best_move, self):
+                            check_for_overlap()
+                            self.ai_actions_remaining -= 1
+                            action_performed = True
+        
+        elif isinstance(char, Rogue):
+            targets = [(enemy, char.position.distance_to(enemy.position))
+                      for enemy in self.current_enemies if enemy.is_alive()]
+            if targets:
+                target, distance = min(targets, key=lambda x: x[1])
+                if distance <= 1:
+                    if char.is_flanking(target, self):
+                        used, _ = char.strike(target, self)
+                        self.ai_actions_remaining -= used
+                        action_performed = True
+                    elif self.ai_actions_remaining >= 2:
+                        used, _ = char.twin_feint(target, self)
+                        self.ai_actions_remaining -= used
+                        action_performed = True
+                    else:
+                        used, _ = char.strike(target, self)
+                        self.ai_actions_remaining -= used
+                        action_performed = True
+                else:
+                    moves = get_unoccupied_moves(char, target.position)
+                    if moves:
+                        best_move = None
+                        for move in moves:
+                            original_pos = char.position
+                            char.position = move
+                            if char.is_flanking(target, self):
+                                best_move = move
+                                char.position = original_pos
+                                break
+                            char.position = original_pos
+                        if not best_move:
+                            best_move = moves[0]
+                        if char.move_to(best_move, self):
+                            check_for_overlap()
+                            self.ai_actions_remaining -= 1
+                            action_performed = True
+        
+        elif isinstance(char, Cleric):
+            allies_needing_heal = [(ally, ally.max_hp - ally.hp) 
+                                 for ally in self.party 
+                                 if ally != char and ally.is_alive() and ally.hp < ally.max_hp]
+            if allies_needing_heal:
+                allies_needing_heal.sort(key=lambda x: x[1], reverse=True)
+                target_ally, missing_hp = allies_needing_heal[0]
+                distance = char.position.distance_to(target_ally.position)
+                if distance <= char.LESSER_HEAL_RANGE:
+                    used, _ = char.lesser_heal(target_ally, self, 1)
+                    self.ai_actions_remaining -= used
+                    action_performed = True
+                elif distance <= char.LESSER_HEAL_UP_RANGE:
+                    allies_in_range = sum(1 for ally, _ in allies_needing_heal 
+                                       if char.position.distance_to(ally.position) <= char.LESSER_HEAL_UP_RANGE)
+                    if allies_in_range >= 2 and self.ai_actions_remaining >= 3:
+                        used, _ = char.lesser_heal(target_ally, self, 3)
+                        self.ai_actions_remaining -= used
+                        action_performed = True
+                    elif self.ai_actions_remaining >= 2:
+                        used, _ = char.lesser_heal(target_ally, self, 2)
+                        self.ai_actions_remaining -= used
+                        action_performed = True
+                    else:
+                        moves = get_unoccupied_moves(char, target_ally.position)
+                        if moves:
+                            best_move = moves[0]
+                            if char.move_to(best_move, self):
+                                check_for_overlap()
+                                self.ai_actions_remaining -= 1
+                                action_performed = True
+                else:
+                    moves = get_unoccupied_moves(char, target_ally.position)
+                    if moves:
+                        best_move = moves[0]
+                        if char.move_to(best_move, self):
+                            check_for_overlap()
+                            self.ai_actions_remaining -= 1
+                            action_performed = True
+            else:
+                targets = [(enemy, char.position.distance_to(enemy.position))
+                          for enemy in self.current_enemies if enemy.is_alive()]
+                if targets:
+                    target, distance = min(targets, key=lambda x: x[1])
+                    if distance <= 1:
+                        used, _ = char.attack(target, self, dice=(1, 6))
+                        self.ai_actions_remaining -= used
+                        action_performed = True
+                    else:
+                        moves = get_unoccupied_moves(char, target.position)
+                        if moves:
+                            best_move = moves[0]
+                            if char.move_to(best_move, self):
+                                check_for_overlap()
+                                self.ai_actions_remaining -= 1
+                                action_performed = True
+        
+        elif isinstance(char, Wizard):
+            targets = [(enemy, char.position.distance_to(enemy.position))
+                      for enemy in self.current_enemies if enemy.is_alive()]
+            if targets:
+                target, distance = min(targets, key=lambda x: x[1])
+                if distance <= char.MAGIC_MISSILE_RANGE:
+                    used, _ = char.magic_missile(target, self, self.ai_actions_remaining)
+                    self.ai_actions_remaining -= used
+                    action_performed = True
+                else:
+                    moves = get_unoccupied_moves(char, target.position)
+                    if moves:
+                        best_move = moves[0]
+                        if char.move_to(best_move, self):
+                            check_for_overlap()
+                            self.ai_actions_remaining -= 1
+                            action_performed = True
+        
+        # If an action was performed, set a delay before the next action
+        if action_performed:
+            self.action_delay = pygame.time.get_ticks() + 1500  # 1.5 second delay between AI actions
+            # Schedule the next AI action
+            self._schedule_next_ai_action = True
+        else:
+            # No valid action found, end turn
+            self.ai_current_char = None
+            self.ai_actions_remaining = 0
+            self.next_turn()
 
 if __name__ == "__main__":
     game = Game()
