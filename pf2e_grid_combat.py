@@ -1269,10 +1269,10 @@ class Cleric(Character):
             # 2-actions: ranged + bonus healing
             dice_roll = random.randint(1, 8)
             heal_amount = dice_roll + 8
-            game.add_message(f"Healing: d8 + 8 = [{dice_roll}] + 8 = {heal_amount}")
+            game.add_message(f"Healing: d8 + 8 = [{dice_roll}] + 8 = {heal_amount + 8}")
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
             old_hp = target.hp
-            target.hp = min(target.hp + heal_amount, target.max_hp)
+            target.hp = min(target.hp + heal_amount + 8, target.max_hp)
             healed = target.hp - old_hp
             game.add_message(f"{target.name} heals for {healed} HP. Now at {target.hp}/{target.max_hp} HP.")
 
@@ -1406,6 +1406,16 @@ class Game:
         self.enemy_actions_remaining = 0  # Actions left for current enemy
         self._schedule_next_enemy_action = False  # Flag to schedule next enemy action after delay
         
+        # Victory overlay variables
+        self.victory_overlay_active = False
+        self.victory_overlay_start = 0
+        self.victory_overlay_duration = 3000  # 3 seconds
+        
+        # Upgrade help variables
+        self.first_time_upgrades = True
+        self.showing_upgrade_help = False
+        self.upgrade_help_button_rect = None
+        
         # Create surfaces
         self.grid_surface = pygame.Surface((GRID_COLS * GRID_SIZE, GRID_ROWS * GRID_SIZE))
         self.message_surface = pygame.Surface((WINDOW_WIDTH - 40, 200))
@@ -1497,9 +1507,20 @@ class Game:
             self.showing_help = False
             return
             
+        # If upgrade help overlay is showing, clicking anywhere closes it
+        if self.showing_upgrade_help:
+            self.showing_upgrade_help = False
+            return
+            
         # Check if help button was clicked
         if self.help_button_rect and self.help_button_rect.collidepoint(pos):
             self.showing_help = True
+            return
+            
+        # Check if upgrade help button was clicked (only in upgrade state)
+        if (self.state == "upgrade" and self.upgrade_help_button_rect and 
+            self.upgrade_help_button_rect.collidepoint(pos)):
+            self.showing_upgrade_help = True
             return
             
         # Don't handle clicks during action delay
@@ -2140,17 +2161,24 @@ class Game:
             for effect in self.effects:
                 effect.draw(self.screen)
 
-            # Draw wave announcement overlay if active
-            if self.state == "combat":
-                self.draw_wave_announcement()
+        # Draw wave announcement overlay
+        self.draw_wave_announcement()
+        
+        # Draw victory overlay if active
+        if self.victory_overlay_active:
+            self.draw_victory_overlay()
 
-        # Draw help button in all states except help overlay, intro, and class_select
-        if not self.showing_help and self.state not in ["intro", "class_select"]:
+        # Draw help button (always visible except on intro/victory/game_over screens)
+        if self.state not in ["intro", "victory", "game_over"]:
             self.draw_help_button()
+            if self.state == "upgrade":
+                self.draw_upgrade_help_button()
 
-        # Draw help overlay if active
+        # Draw help overlay if showing
         if self.showing_help:
             self.draw_help_overlay()
+        elif self.showing_upgrade_help:
+            self.draw_upgrade_help_overlay()
 
         pygame.display.flip()
 
@@ -2212,6 +2240,21 @@ class Game:
         running = True
         while running:
             current_time = pygame.time.get_ticks()
+            
+            # Handle victory overlay timing
+            if self.victory_overlay_active:
+                if current_time - self.victory_overlay_start >= self.victory_overlay_duration:
+                    self.victory_overlay_active = False
+                    # Proceed to next phase after victory overlay
+                    if self.wave_number == 3:  # Final wave completed
+                        self.end_battle(victory=True)
+                    else:  # Wave 1 or 2 completed
+                        self.start_upgrades()
+                # During victory overlay, skip all other input handling
+                self.update_effects()
+                self.draw()
+                self.clock.tick(60)
+                continue
             
             if self.action_delay > current_time:
                 # Update and draw effects even during delay
@@ -2444,6 +2487,28 @@ class Game:
         elif self.wave_announcement and pygame.time.get_ticks() >= self.wave_announcement_end:
             self.wave_announcement = None
 
+    def draw_victory_overlay(self):
+        """Draw the victory overlay when a wave is completed"""
+        # Add semi-transparent black background
+        overlay_bg = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+        overlay_bg.fill((0, 0, 0))
+        overlay_bg.set_alpha(180)
+        self.screen.blit(overlay_bg, (0, 0))
+        
+        # Draw the victory text with golden color
+        victory_text = "VICTORY!"
+        text = LARGE_TITLE_FONT.render(victory_text, True, (255, 215, 0))  # Gold color
+        text_rect = text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2))
+        self.screen.blit(text, text_rect)
+        
+        # Add a subtle glow effect by drawing the text multiple times with slight offsets
+        for offset in [(-2, -2), (-2, 2), (2, -2), (2, 2)]:
+            glow_text = LARGE_TITLE_FONT.render(victory_text, True, (255, 255, 150))  # Lighter gold
+            glow_rect = text_rect.copy()
+            glow_rect.x += offset[0]
+            glow_rect.y += offset[1]
+            self.screen.blit(glow_text, glow_rect)
+
     def start_upgrades(self):
         """Start the upgrade selection process"""
         # Heal all party members to full
@@ -2454,6 +2519,12 @@ class Game:
         
         self.state = "upgrade"
         self.upgrade_selection = 0  # Start with first party member
+        
+        # Show upgrade instructions the first time
+        if self.first_time_upgrades:
+            self.showing_upgrade_help = True
+            self.first_time_upgrades = False
+        
         self.update_available_actions()
 
     def apply_upgrade(self, upgrade: str):
@@ -2476,13 +2547,29 @@ class Game:
         alive_enemies = [e for e in self.current_enemies if e.is_alive()]
         
         if not alive_enemies:
+            # Immediately stop all actions and show victory overlay
+            self.actions_left = 0
+            self.action_delay = 0
+            self._end_turn_after_delay = False
+            self._schedule_next_ai_action = False
+            self._schedule_next_enemy_action = False
+            
+            # Clear any pending actions or selections
+            self.pending_action = None
+            self.selected_target = None
+            self.valid_targets = []
+            
+            # Show victory overlay
+            self.victory_overlay_active = True
+            self.victory_overlay_start = pygame.time.get_ticks()
+            
             if self.wave_number == 3: # Just completed the final wave (Wyvern)
-                self.end_battle(victory=True)
+                # For final victory, we'll handle this in the victory overlay logic
+                pass
             elif self.wave_number < 3: # Completed wave 1 or 2
                 self.add_message("\nWave complete! Time to rest and upgrade!")
-                self.start_upgrades()
             else: # Should not be reached if logic is correct
-                self.end_battle()
+                pass
             return True
         return False
 
@@ -2637,6 +2724,22 @@ class Game:
         # Draw text
         text = FONT.render("How to Play", True, TEXT_COLOR)
         text_rect = text.get_rect(center=self.help_button_rect.center)
+        self.screen.blit(text, text_rect)
+
+    def draw_upgrade_help_button(self):
+        """Draw the upgrade help button next to the How to Play button"""
+        button_width = 140
+        button_height = 40
+        # Position it to the left of the How to Play button
+        self.upgrade_help_button_rect = pygame.Rect(WINDOW_WIDTH - button_width - 140, 10, button_width, button_height)
+        
+        # Draw button
+        pygame.draw.rect(self.screen, BUTTON_COLOR, self.upgrade_help_button_rect)
+        pygame.draw.rect(self.screen, TITLE_COLOR, self.upgrade_help_button_rect, 2)
+        
+        # Draw text
+        text = FONT.render("Upgrade Help", True, TEXT_COLOR)
+        text_rect = text.get_rect(center=self.upgrade_help_button_rect.center)
         self.screen.blit(text, text_rect)
 
     def draw_help_overlay(self):
@@ -2904,6 +3007,76 @@ class Game:
             self.ai_current_char = None
             self.ai_actions_remaining = 0
             self.next_turn()
+
+    def draw_upgrade_help_overlay(self):
+        """Draw the upgrade help overlay with upgrade instructions"""
+        # Semi-transparent background
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+        overlay.fill((0, 0, 0))
+        overlay.set_alpha(180)
+        self.screen.blit(overlay, (0, 0))
+
+        # Help content for upgrades
+        upgrade_sections = [
+            ("Upgrade System:", [
+                "After each wave, your party gets stronger!",
+                "Each character can choose one upgrade:",
+                "",
+                "• Accuracy: +1 to attack bonus (better chance to hit)",
+                "• Damage: +2 to damage dealt with all attacks",
+                "• Speed: +5 feet movement (1 extra square)",
+                "• Vitality: +8 maximum HP and heal to full",
+                "",
+                "Choose wisely based on your strategy!",
+                "Melee fighters benefit from Damage and Vitality.",
+                "Spellcasters might prefer Accuracy for reliable hits.",
+                "Speed helps with positioning and tactical movement."
+            ])
+        ]
+
+        # Box dimensions
+        box_width = min(700, WINDOW_WIDTH - 80)
+        box_height = min(500, WINDOW_HEIGHT - 80)
+        box_x = (WINDOW_WIDTH - box_width) // 2
+        box_y = (WINDOW_HEIGHT - box_height) // 2
+
+        # Draw help box
+        help_box = pygame.Rect(box_x, box_y, box_width, box_height)
+        pygame.draw.rect(self.screen, (40, 40, 40), help_box)
+        pygame.draw.rect(self.screen, TITLE_COLOR, help_box, 3)
+
+        # Title
+        title = LARGE_TITLE_FONT.render("Upgrade Instructions", True, TITLE_COLOR)
+        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, box_y + 40))
+        self.screen.blit(title, title_rect)
+
+        # Content
+        y = box_y + 80
+        for section_title, items in upgrade_sections:
+            # Section header
+            header = TITLE_FONT.render(section_title, True, TITLE_COLOR)
+            self.screen.blit(header, (box_x + 20, y))
+            y += 35
+
+            # Section items
+            for item in items:
+                if item == "":  # Empty line for spacing
+                    y += 15
+                    continue
+                    
+                color = TEXT_COLOR
+                if item.startswith("•"):
+                    # Bullet points in a different color
+                    color = (200, 200, 255)
+                    
+                text = FONT.render(item, True, color)
+                self.screen.blit(text, (box_x + 30, y))
+                y += 25
+
+        # Close instruction
+        close_text = FONT.render("Click anywhere to close", True, (150, 150, 150))
+        close_rect = close_text.get_rect(center=(WINDOW_WIDTH//2, box_y + box_height - 30))
+        self.screen.blit(close_text, close_rect)
 
 if __name__ == "__main__":
     game = Game()
