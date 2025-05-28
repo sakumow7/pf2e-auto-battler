@@ -3,35 +3,20 @@ import sys
 import random
 import os
 import math
+import logging
+from datetime import datetime
 from typing import List, Tuple, Dict, Optional, Union
 
 # Initialize Pygame
 pygame.init()
 pygame.font.init()
 
-# Get the display info to set window size
-display_info = pygame.display.Info()
-SCREEN_WIDTH = display_info.current_w
-SCREEN_HEIGHT = display_info.current_h
-
-# Set window size to 80% of screen size
-WINDOW_WIDTH = int(SCREEN_WIDTH * 0.95)
-WINDOW_HEIGHT = int(SCREEN_HEIGHT * 0.95)
-
-# Grid dimensions (number of cells)
-GRID_COLS = 16
-GRID_ROWS = 8
-
-# Calculate grid size based on window dimensions and desired grid layout
-# We subtract 100 from height to account for UI elements (50px top bar + 50px bottom margin)
-GRID_SIZE = min((WINDOW_WIDTH) // GRID_COLS, (WINDOW_HEIGHT - 100) // GRID_ROWS)
-
-# Recalculate window size to fit grid exactly
-WINDOW_WIDTH = GRID_COLS * GRID_SIZE
-WINDOW_HEIGHT = (GRID_ROWS * GRID_SIZE) + 100  # Add 100 for UI elements
-
-# Add near the top, after GRID_SIZE and before colors
-GRID_TOP = 50  # Space at the top for turn indicator, etc.
+# Constants
+WINDOW_WIDTH = 1024
+WINDOW_HEIGHT = 900  # Increased from 768 to 900
+GRID_SIZE = 64  # Each grid square represents 5 feet in game
+GRID_COLS = 16  # Increased from 12 to 16
+GRID_ROWS = 12  # Increased from 8 to 12
 
 # Colors
 BACKGROUND_COLOR = (40, 40, 40)
@@ -47,7 +32,6 @@ OVERLAY_COLOR = (0, 0, 0, 180)  # Semi-transparent black
 FIGHTER_COLOR = (200, 50, 50)  # Red
 ROGUE_COLOR = (50, 200, 50)    # Green
 WIZARD_COLOR = (50, 50, 200)   # Blue
-CLERIC_COLOR = (200, 200, 50)  # Yellow
 ENEMY_COLOR = (200, 50, 200)   # Purple
 
 # Special Effects Constants
@@ -61,8 +45,6 @@ POWER_ATTACK_COLOR = (255, 50, 50)  # Bright red
 SNEAK_ATTACK_COLOR = (255, 255, 100)  # Yellow
 CRITICAL_COLOR = (255, 215, 0)  # Gold
 MISS_COLOR = (150, 150, 150)  # Gray
-SPIRIT_LINK_COLOR = (255, 200, 100)  # Golden
-SANCTUARY_COLOR = (200, 255, 200)  # Light green
 
 # Animation types
 ANIMATIONS = {
@@ -73,9 +55,7 @@ ANIMATIONS = {
     'heal': {'color': HEAL_COLOR, 'duration': EFFECT_DURATION},
     'shield': {'color': SHIELD_COLOR, 'duration': EFFECT_DURATION},
     'critical': {'color': CRITICAL_COLOR, 'duration': EFFECT_DURATION},
-    'miss': {'color': MISS_COLOR, 'duration': EFFECT_DURATION * 0.5},
-    'link': {'color': SPIRIT_LINK_COLOR, 'duration': EFFECT_DURATION},
-    'buff': {'color': SANCTUARY_COLOR, 'duration': EFFECT_DURATION}
+    'miss': {'color': MISS_COLOR, 'duration': EFFECT_DURATION * 0.5}
 }
 
 # UI Constants
@@ -91,34 +71,17 @@ IMAGE_PATHS = {
     'fighter': 'images/fighter.webp',
     'rogue': 'images/rogue.webp',
     'wizard': 'images/wizard.webp',
-    'cleric': 'images/cleric.webp',
     'goblin': 'images/goblin.webp',
     'ogre': 'images/ogre.webp',
     'wyvern': 'images/wyvern.webp'
 }
 
 class Effect:
-    """
-    Handles visual effects and animations in the game.
-    This class manages various combat animations like magic missiles, strikes, healing effects, etc.
-    Each effect has its own draw method and lifecycle.
-    
-    Attributes:
-        start_pos: Starting position of the effect
-        end_pos: Ending position of the effect
-        color: RGB color tuple for the effect
-        duration: How long the effect lasts in frames
-        effect_type: Type of effect (e.g., "magic_missile", "strike", "heal")
-        damage: Optional damage amount to display
-        hit_type: Optional hit type ("hit", "miss", "critical")
-    """
     def __init__(self, start_pos: Union['GridPosition', Tuple[int, int]], 
                  end_pos: Union['GridPosition', Tuple[int, int]], 
                  color: Tuple[int, int, int], 
                  duration: int = EFFECT_DURATION, 
-                 effect_type: str = "basic",
-                 damage: Optional[int] = None,
-                 hit_type: Optional[str] = None):
+                 effect_type: str = "basic"):
         # Convert grid positions to pixel coordinates
         if isinstance(start_pos, GridPosition):
             self.start_pos = (start_pos.x * GRID_SIZE, start_pos.y * GRID_SIZE)
@@ -134,8 +97,6 @@ class Effect:
         self.duration = duration
         self.current_frame = -EFFECT_DELAY  # Start with negative frames for delay
         self.effect_type = effect_type
-        self.damage = damage
-        self.hit_type = hit_type
         
         # Calculate trajectory
         self.dx = self.end_pos[0] - self.start_pos[0]
@@ -153,7 +114,6 @@ class Effect:
             
         progress = self.current_frame / self.duration
         
-        # Draw the main effect animation
         if self.effect_type == "magic_missile":
             self._draw_magic_missile(surface, progress)
         elif self.effect_type == "heal":
@@ -170,64 +130,7 @@ class Effect:
             self._draw_critical(surface, progress)
         elif self.effect_type == "miss":
             self._draw_miss(surface, progress)
-        elif self.effect_type == "link":
-            self._draw_link(surface, progress)
-        elif self.effect_type == "buff":
-            self._draw_buff(surface, progress)
             
-        # Draw damage numbers and hit/miss overlay
-        if self.damage is not None or self.hit_type is not None:
-            self._draw_damage_and_hit(surface, progress)
-            
-    def _draw_damage_and_hit(self, surface: pygame.Surface, progress: float):
-        """Draw damage numbers and hit/miss overlay"""
-        # Calculate position for damage numbers (slightly above target)
-        x = self.end_pos[0] + GRID_SIZE//2
-        y = self.end_pos[1] + GRID_SIZE//2 - 30  # Start above target
-        
-        # Draw hit/miss overlay
-        if self.hit_type:
-            overlay_surface = pygame.Surface((GRID_SIZE * 2, GRID_SIZE * 2), pygame.SRCALPHA)
-            alpha = int(255 * (1 - progress))
-            
-            if self.hit_type == "hit":
-                color = (0, 255, 0, alpha)  # Green for hit
-                text = "HIT!"
-            elif self.hit_type == "miss":
-                color = (255, 0, 0, alpha)  # Red for miss
-                text = "MISS!"
-            elif self.hit_type == "critical":
-                color = (255, 215, 0, alpha)  # Gold for critical
-                text = "CRITICAL!"
-            
-            # Draw text
-            font = pygame.font.SysFont('Arial', 24, bold=True)
-            text_surf = font.render(text, True, color)
-            text_rect = text_surf.get_rect(center=(GRID_SIZE, GRID_SIZE))
-            overlay_surface.blit(text_surf, text_rect)
-            
-            # Draw the overlay
-            surface.blit(overlay_surface, (x - GRID_SIZE, y - GRID_SIZE + 50))
-        
-        # Draw damage numbers
-        if self.damage is not None:
-            # Calculate y position with a slight bounce effect
-            bounce = math.sin(progress * math.pi) * 20
-            damage_y = y - bounce
-            
-            # Create damage text surface
-            font = pygame.font.SysFont('Arial', 24, bold=True)
-            damage_text = f"-{self.damage}"
-            text_surf = font.render(damage_text, True, (255, 50, 50))  # Red color for damage
-            
-            # Calculate alpha based on progress
-            alpha = int(255 * (1 - progress))
-            text_surf.set_alpha(alpha)
-            
-            # Draw the damage text
-            text_rect = text_surf.get_rect(center=(x, damage_y + 50))
-            surface.blit(text_surf, text_rect)
-        
     def _draw_magic_missile(self, surface, progress):
         # Draw multiple magic missile particles
         current_x = self.start_pos[0] + self.dx * progress
@@ -449,88 +352,7 @@ class Effect:
             
         surface.blit(circle_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE + 50))
 
-    def _draw_link(self, surface, progress):
-        """Draw the spirit link animation"""
-        # Calculate center points of both characters
-        start_center_x = self.start_pos[0] + GRID_SIZE//2
-        start_center_y = self.start_pos[1] + GRID_SIZE//2
-        end_center_x = self.end_pos[0] + GRID_SIZE//2
-        end_center_y = self.end_pos[1] + GRID_SIZE//2
-        
-        # Create a pulsing alpha effect
-        pulse = abs(math.sin(pygame.time.get_ticks() / 200))
-        alpha = int(150 + 105 * pulse * (1 - progress))
-        
-        # Draw the main connecting line
-        line_color = (*self.color, alpha)
-        line_width = max(1, int(6 * (1 - progress * 0.5)))
-        
-        # Create a surface for the line with alpha
-        line_surface = pygame.Surface((abs(end_center_x - start_center_x) + line_width * 2, 
-                                     abs(end_center_y - start_center_y) + line_width * 2), pygame.SRCALPHA)
-        
-        # Calculate relative positions on the line surface
-        line_start_x = line_width if start_center_x < end_center_x else abs(end_center_x - start_center_x) + line_width
-        line_start_y = line_width if start_center_y < end_center_y else abs(end_center_y - start_center_y) + line_width
-        line_end_x = line_width if end_center_x < start_center_x else abs(end_center_x - start_center_x) + line_width
-        line_end_y = line_width if end_center_y < start_center_y else abs(end_center_y - start_center_y) + line_width
-        
-        # Draw the connecting line
-        pygame.draw.line(line_surface, line_color, 
-                        (line_start_x, line_start_y), (line_end_x, line_end_y), line_width)
-        
-        # Draw energy particles along the line
-        for i in range(3):
-            particle_progress = (progress * 3 + i * 0.33) % 1.0
-            particle_x = start_center_x + (end_center_x - start_center_x) * particle_progress
-            particle_y = start_center_y + (end_center_y - start_center_y) * particle_progress
-            particle_alpha = int(200 * (1 - progress))
-            
-            if particle_alpha > 0:
-                pygame.draw.circle(surface, (*self.color, particle_alpha), 
-                                 (int(particle_x), int(particle_y)), 3)
-        
-        # Position the line surface correctly
-        blit_x = min(start_center_x, end_center_x) - line_width
-        blit_y = min(start_center_y, end_center_y) - line_width
-        surface.blit(line_surface, (blit_x, blit_y))
-
-    def _draw_buff(self, surface, progress):
-        """Draw the sanctuary animation"""
-        center_x = self.start_pos[0] + GRID_SIZE//2
-        center_y = self.start_pos[1] + GRID_SIZE//2
-        
-        # Create shield effect
-        effect_surface = pygame.Surface((GRID_SIZE * 4, GRID_SIZE * 4), pygame.SRCALPHA)
-        alpha = int(255 * (1 - progress))
-        
-        # Draw multiple shield arcs
-        for i in range(4):
-            start_angle = math.pi * 2 * (i / 4)
-            end_angle = start_angle + math.pi / 2
-            
-            points = []
-            for a in range(int(start_angle * 180/math.pi), int(end_angle * 180/math.pi)):
-                rad = a * math.pi / 180
-                x = GRID_SIZE + math.cos(rad) * GRID_SIZE
-                y = GRID_SIZE + math.sin(rad) * GRID_SIZE
-                points.append((x, y))
-                
-            if len(points) > 1:
-                pygame.draw.lines(effect_surface, (*self.color, alpha), False, points, 3)
-        
-        surface.blit(effect_surface, (center_x - GRID_SIZE * 2, center_y - GRID_SIZE * 2))
-
 class GridPosition:
-    """
-    Represents a position on the game grid.
-    Handles grid-based positioning and calculations for movement and distance.
-    Provides utility methods for converting between grid and pixel coordinates.
-    
-    Attributes:
-        x: X coordinate on the grid
-        y: Y coordinate on the grid
-    """
     def __init__(self, x: int, y: int):
         self.x = x
         self.y = y
@@ -549,40 +371,24 @@ class GridPosition:
         return (self.x * GRID_SIZE, self.y * GRID_SIZE)
 
 class Character:
-    """
-    Base class for all characters in the game (both player characters and enemies).
-    Implements core functionality like movement, combat, health management, and rendering.
-    
-    Attributes:
-        name: Character's name
-        hp/max_hp: Current and maximum health points
-        base_ac: Base armor class
-        attack_bonus: Bonus to attack rolls
-        position: Current GridPosition
-        sprite: Character's visual representation
-        potions: Number of healing potions available
-        speed: Movement speed in feet
-    """
     def __init__(self, name: str, hp: int, ac: int, attack_bonus: int):
         self.name = name
         self.max_hp = hp
         self.hp = hp
         self.base_ac = ac
         self.attack_bonus = attack_bonus
-        self.position = GridPosition(-1, -1)  # Off-grid initially
-        self.alive = True
-        self.color = (255, 255, 255)
+        self.position = GridPosition(0, 0)
         self.sprite = None
-        self.speed = 25  # Default movement speed in feet
-        self.potions = 3  # Starting potions
-        self.bonus_damage = 0  # Bonus damage from upgrades
-        self.off_guard = False  # Condition for flanking/sneak attacks
-        self.is_enemy = False  # Flag to distinguish enemies from party members
+        self.sprite_path = None
+        self.color = (200, 200, 200)
+        self.potions = 3
+        self.alive = True
+        self.off_guard = False
+        self.is_enemy = False
+        self.speed = 25  # Speed in feet (5 feet per square)
+        self.selected_action = None
+        self.bonus_damage = 0  # New attribute for damage upgrade
         
-        # Conditions system
-        self.conditions = {}  # Dictionary to store active conditions and their durations
-        self.sanctuary_active = False  # Special flag for sanctuary protection
-    
     def load_sprite(self, sprite_path: str):
         """Load and scale character sprite"""
         try:
@@ -636,89 +442,58 @@ class Character:
         if self.can_move_to(new_pos, game):
             self.position = new_pos
             return True
-        else:
-            return False
+        return False
     
     def draw(self, surface: pygame.Surface, game: Optional['Game'] = None):
         if not self.alive:
             return
-        x = self.position.x * GRID_SIZE
-        y = self.position.y * GRID_SIZE  # Remove GRID_TOP - it's added when grid_surface is blitted
         
-        # Draw sanctuary protection indicator
-        if self.sanctuary_active:
-            pulse = abs(math.sin(pygame.time.get_ticks() / 300))  # Faster pulse for sanctuary
-            sanctuary_color = (255, 215, 0, int(80 + 100 * pulse))  # Golden color
-            sanctuary_surface = pygame.Surface((GRID_SIZE + 12, GRID_SIZE + 12), pygame.SRCALPHA)
-            pygame.draw.rect(sanctuary_surface, sanctuary_color, 
-                           (0, 0, GRID_SIZE + 12, GRID_SIZE + 12), 6, border_radius=8)
-            surface.blit(sanctuary_surface, (x - 6, y - 6))
+        x, y = self.position.get_pixel_pos()
         
         # Draw active turn indicator if this is the current character
         if (game and not self.is_enemy and 
             game.state == "combat" and 
             game.current_member_idx < len(game.party) and 
             game.party[game.current_member_idx] == self):
-            pulse = abs(math.sin(pygame.time.get_ticks() / 500))
+            # Draw pulsing highlight around active character
+            pulse = abs(math.sin(pygame.time.get_ticks() / 500))  # Pulsing effect
             highlight_color = (255, 255, 255, int(100 + 155 * pulse))
             highlight_surface = pygame.Surface((GRID_SIZE + 8, GRID_SIZE + 8), pygame.SRCALPHA)
             pygame.draw.rect(highlight_surface, highlight_color, 
                            (0, 0, GRID_SIZE + 8, GRID_SIZE + 8), 4, border_radius=4)
             surface.blit(highlight_surface, (x - 4, y - 4))
         
-        # Draw targeting indicator if this character is currently selected as a target
-        if (game and game.selected_target == self):
-            pulse = abs(math.sin(pygame.time.get_ticks() / 300))  # Faster pulse for targeting
-            target_color = (255, 50, 50, int(120 + 135 * pulse))  # Red color with pulsing alpha
-            target_surface = pygame.Surface((GRID_SIZE + 16, GRID_SIZE + 16), pygame.SRCALPHA)
-            pygame.draw.rect(target_surface, target_color, 
-                           (0, 0, GRID_SIZE + 16, GRID_SIZE + 16), 8, border_radius=6)
-            surface.blit(target_surface, (x - 8, y - 8))
-            
-            # Add crosshair indicator in the center
-            crosshair_color = (255, 255, 255, int(200 + 55 * pulse))
-            center_x = x + GRID_SIZE//2
-            center_y = y + GRID_SIZE//2
-            crosshair_size = 12
-            
-            # Draw crosshair lines
-            pygame.draw.line(surface, crosshair_color[:3], 
-                           (center_x - crosshair_size, center_y), 
-                           (center_x + crosshair_size, center_y), 3)
-            pygame.draw.line(surface, crosshair_color[:3], 
-                           (center_x, center_y - crosshair_size), 
-                           (center_x, center_y + crosshair_size), 3)
-        
         # Draw character sprite or fallback shape
         if self.sprite:
-            # Always scale sprite to fit grid square
-            sprite = pygame.transform.scale(self.sprite, (GRID_SIZE, GRID_SIZE))
-            surface.blit(sprite, (x, y))
+            surface.blit(self.sprite, (x, y))
         else:
             if self.is_enemy:
+                # Draw enemy as diamond
                 points = [
-                    (x + GRID_SIZE//2, y),
-                    (x + GRID_SIZE, y + GRID_SIZE//2),
-                    (x + GRID_SIZE//2, y + GRID_SIZE),
-                    (x, y + GRID_SIZE//2)
+                    (x + GRID_SIZE//2, y),  # Top
+                    (x + GRID_SIZE, y + GRID_SIZE//2),  # Right
+                    (x + GRID_SIZE//2, y + GRID_SIZE),  # Bottom
+                    (x, y + GRID_SIZE//2)  # Left
                 ]
                 pygame.draw.polygon(surface, self.color, points)
                 pygame.draw.polygon(surface, (255, 255, 255), points, 2)
             else:
+                # Draw hero as circle
                 pygame.draw.circle(surface, self.color, 
                                  (x + GRID_SIZE//2, y + GRID_SIZE//2), 
                                  GRID_SIZE//2)
                 pygame.draw.circle(surface, (255, 255, 255),
                                  (x + GRID_SIZE//2, y + GRID_SIZE//2),
                                  GRID_SIZE//2, 2)
-        # Draw health bar below the character instead of above
+        
+        # Draw health bar
         health_percent = self.hp / self.max_hp
         bar_width = GRID_SIZE * health_percent
         pygame.draw.rect(surface, (100, 0, 0),
-                        (x, y + GRID_SIZE + 2, GRID_SIZE, 5))
+                        (x, y - 10, GRID_SIZE, 5))
         if health_percent > 0:
             pygame.draw.rect(surface, (0, 255, 0),
-                           (x, y + GRID_SIZE + 2, bar_width, 5))
+                           (x, y - 10, bar_width, 5))
 
     def is_flanking(self, target: 'Character', game: 'Game') -> bool:
         """Check if this character is flanking the target with an ally"""
@@ -754,7 +529,7 @@ class Character:
         
         return False
 
-    def apply_upgrade(self, upgrade_type: str) -> str:
+    def apply_upgrade(self, upgrade_type: str):
         """Apply an upgrade to the character"""
         if upgrade_type == "Accuracy":
             self.attack_bonus += 1
@@ -769,9 +544,8 @@ class Character:
             self.max_hp += 10
             self.hp += 10
             return f"{self.name} gains 10 max HP!"
-        return f"Unknown upgrade type: {upgrade_type}"
-
-    def heal_full(self) -> int:
+            
+    def heal_full(self):
         """Heal to full health"""
         old_hp = self.hp
         self.hp = self.max_hp
@@ -793,32 +567,11 @@ class Character:
             game.add_message(f"{target.name} is out of range!")
             return 0, False
             
-        # Check for Sanctuary protection (only affects enemies attacking party members)
-        if self.is_enemy and target.sanctuary_active:
-            will_save = random.randint(1, 20) + 2  # Enemies have +2 Will save
-            sanctuary_dc = 15
-            game.add_message(f"{self.name} must make a Will save to target {target.name} (Sanctuary)")
-            game.add_message(f"Will save: d20({will_save - 2}) + 2 = {will_save} vs DC {sanctuary_dc}")
-            
-            if will_save < sanctuary_dc:
-                game.add_message(f"{self.name} cannot bring themselves to attack {target.name}!")
-                # Remove sanctuary after it protects once
-                target.remove_condition("Sanctuary")
-                game.add_message(f"{target.name}'s Sanctuary fades after protecting them.")
-                # Add a miss effect to show the failed attack attempt
-                game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, 
-                                     effect_type="miss", hit_type="miss"))
-                return 1, False  # Action is used but attack fails
-            else:
-                game.add_message(f"{self.name} overcomes the Sanctuary and attacks!")
-                # Remove sanctuary after a successful save
-                target.remove_condition("Sanctuary")
-                game.add_message(f"{target.name}'s Sanctuary is broken!")
-        
         # Check for flanking
         if self.is_flanking(target, game):
             target.off_guard = True
-        
+            game.add_message(f"{target.name} is flanked and Off-Guard!")
+            
         roll = random.randint(1, 20)
         total = roll + self.attack_bonus
         target_ac = target.get_ac()
@@ -827,9 +580,8 @@ class Character:
         
         if roll == 1:
             game.add_message("Critical Miss!")
-            # Add miss animation with overlay
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, 
-                                 effect_type="miss", hit_type="miss"))
+            # Add miss animation
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, effect_type="miss"))
             target.off_guard = False
             return 1, False
             
@@ -837,42 +589,27 @@ class Character:
         dice_num, dice_sides = dice
         if roll == 20 or total >= target_ac + 10:
             game.add_message("Critical Hit!")
-            # Roll damage dice and show individual rolls
-            damage_rolls = [random.randint(1, dice_sides) for _ in range(dice_num * 2)]
-            dmg = sum(damage_rolls)
-            # Show the dice rolls
-            dice_str = " + ".join(str(roll) for roll in damage_rolls)
-            game.add_message(f"Damage: {dice_num * 2}d{dice_sides} = [{dice_str}] = {dmg}")
-            # Add critical hit animation with overlay and damage
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), CRITICAL_COLOR, 
-                                 effect_type="critical", damage=dmg, hit_type="critical"))
+            dmg = sum(random.randint(1, dice_sides) for _ in range(dice_num * 2))
+            # Add critical hit animation
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), CRITICAL_COLOR, effect_type="critical"))
         elif total >= target_ac:
             game.add_message("Hit!")
-            # Roll damage dice and show individual rolls
-            damage_rolls = [random.randint(1, dice_sides) for _ in range(dice_num)]
-            dmg = sum(damage_rolls)
-            # Show the dice rolls
-            dice_str = " + ".join(str(roll) for roll in damage_rolls)
-            game.add_message(f"Damage: {dice_num}d{dice_sides} = [{dice_str}] = {dmg}")
-            # Add basic strike animation with overlay and damage
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), STRIKE_COLOR, 
-                                 effect_type="strike", damage=dmg, hit_type="hit"))
+            dmg = sum(random.randint(1, dice_sides) for _ in range(dice_num))
+            # Add basic strike animation
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), STRIKE_COLOR, effect_type="strike"))
         else:
             game.add_message("Miss!")
-            # Add miss animation with overlay
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, 
-                                 effect_type="miss", hit_type="miss"))
+            # Add miss animation
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, effect_type="miss"))
             target.off_guard = False
             return 1, False
             
-        # Only Rogues get sneak attack damage
-        if sneak_attack and isinstance(self, Rogue):
+        if sneak_attack or target.off_guard:
             sa_dmg = random.randint(1, 6)
             dmg += sa_dmg
-            game.add_message(f"Sneak Attack! Extra d6: [{sa_dmg}]")
-            # Add sneak attack animation with damage
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), SNEAK_ATTACK_COLOR, 
-                                 effect_type="sneak_attack", damage=sa_dmg))
+            game.add_message(f"Sneak Attack! Extra d6: {sa_dmg}")
+            # Add sneak attack animation
+            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), SNEAK_ATTACK_COLOR, effect_type="sneak_attack"))
             
         dmg += bonus_damage + self.bonus_damage
         game.add_message(f"Damage Total: {dmg}")
@@ -918,7 +655,7 @@ class Character:
             
         # Add Heal action
         if game.actions_left >= 1 and self.potions > 0:
-            actions.append(("Potion", self.position, lambda: self.heal(game)))
+            actions.append(("Heal", self.position, lambda: self.heal(game)))
             
         return actions
         
@@ -933,45 +670,7 @@ class Character:
         """Get the pixel position of the character for animations"""
         return (self.position.x * GRID_SIZE, self.position.y * GRID_SIZE)
 
-    def add_condition(self, condition_name: str, duration: int = 1):
-        """Add a condition to the character"""
-        self.conditions[condition_name] = duration
-        if condition_name == "Sanctuary":
-            self.sanctuary_active = True
-    
-    def remove_condition(self, condition_name: str):
-        """Remove a condition from the character"""
-        if condition_name in self.conditions:
-            del self.conditions[condition_name]
-        if condition_name == "Sanctuary":
-            self.sanctuary_active = False
-    
-    def has_condition(self, condition_name: str) -> bool:
-        """Check if character has a specific condition"""
-        return condition_name in self.conditions
-    
-    def update_conditions(self):
-        """Update condition durations and remove expired ones"""
-        expired_conditions = []
-        for condition, duration in self.conditions.items():
-            self.conditions[condition] = duration - 1
-            if self.conditions[condition] <= 0:
-                expired_conditions.append(condition)
-        
-        for condition in expired_conditions:
-            self.remove_condition(condition)
-
 class Fighter(Character):
-    """
-    Fighter class character specializing in melee combat.
-    Features high HP, good armor, and powerful melee attacks.
-    Special ability: Power Attack (2 actions) for increased damage.
-    
-    Starting Stats:
-        HP: 50
-        AC: 18
-        Attack Bonus: +9
-    """
     def __init__(self, name: str):
         super().__init__(name, hp=50, ac=18, attack_bonus=9)
         self.color = FIGHTER_COLOR
@@ -1025,17 +724,6 @@ class Fighter(Character):
         return 2, True  # Always consume 2 actions, regardless of hit
 
 class Rogue(Character):
-    """
-    Rogue class character focusing on mobility and tactical positioning.
-    Excels at flanking and dealing extra damage to off-guard targets.
-    Special abilities: Sneak Attack and Twin Feint.
-    
-    Starting Stats:
-        HP: 38
-        AC: 17
-        Attack Bonus: +8
-        Speed: 30 feet (faster than other classes)
-    """
     def __init__(self, name: str):
         super().__init__(name, hp=38, ac=17, attack_bonus=8)
         self.color = ROGUE_COLOR
@@ -1083,6 +771,7 @@ class Rogue(Character):
             
         sneak = target.off_guard
         used, hit = self.attack(target, game, dice=(1, 6), sneak_attack=sneak)
+        game.actions_left -= used  # Consume action regardless of hit
         if hit and random.random() < 0.5:
             target.off_guard = True
             game.add_message(f"{target.name} is now Off-Guard until their next turn!")
@@ -1107,20 +796,6 @@ class Rogue(Character):
         return 2, hit1 or hit2  # Always consume exactly 2 actions total
 
 class Wizard(Character):
-    """
-    Wizard class character specializing in ranged magical attacks.
-    Features various spells with different ranges and effects.
-    Special abilities: Magic Missile, Arcane Blast, and Shield spell.
-    
-    Starting Stats:
-        HP: 32
-        AC: 16
-        Attack Bonus: +6
-        
-    Spell Ranges:
-        Arcane Blast: 20 feet (4 squares)
-        Magic Missile: 120 feet (24 squares)
-    """
     # Spell ranges in squares (1 square = 5 feet)
     ARCANE_BLAST_RANGE = 4  # 20 feet
     MAGIC_MISSILE_RANGE = 24  # 120 feet
@@ -1159,7 +834,7 @@ class Wizard(Character):
                     count = i  # Store count to avoid lambda capture issues
                     actions.append((f"Magic Missile [{i}]", self.position,
                                   (f"Magic Missile ({i})", 
-                                   lambda t, c=count: self.magic_missile(t, game, c))))
+                                   lambda t: self.magic_missile(target, game, count))))
         
         # Add Shield spell (no target needed) if have enough actions and not already up
         if game.actions_left >= 1 and not self.shield_up:
@@ -1202,9 +877,8 @@ class Wizard(Character):
         # Add magic missile animation for each missile
         for i in range(action_count):
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MAGIC_MISSILE_COLOR, effect_type="magic_missile"))
-            dice_roll = random.randint(1, 4)
-            dmg = dice_roll + 1
-            game.add_message(f"Magic Missile #{i+1}: d4 + 1 = [{dice_roll}] + 1 = {dmg} force damage")
+            dmg = random.randint(1, 4) + 1
+            game.add_message(f"Magic Missile #{i+1}: {dmg} force damage")
             target.take_damage(dmg, game)
             
         if self.shield_up:
@@ -1224,198 +898,8 @@ class Wizard(Character):
         self.base_ac += 2
         self.shield_up = True
         return 1, True
-    
-class Cleric(Character):
-    """
-    Cleric class character specializing in supportive magical spells.
-    Features various spells with different ranges and effects.
-    Special abilities: Heal, Sanctuary, and Spirit Link spell.
-    
-    Starting Stats:
-        HP: 32
-        AC: 16
-        Attack Bonus: +6
-        
-    Spell Ranges:
-        Lesser Heal: 5 feet (1 squares) but variable
-        Sanctuary: 5 feet (1 square)
-        Spirit Link: 30 feet (6 square)
-    """
-    # Spell ranges in squares (1 square = 5 feet)
-    LESSER_HEAL_RANGE = 1 # 5 feet and variable
-    LESSER_HEAL_UP_RANGE = 6 # 30 feet
-    SANCTUARY_RANGE = 1 # 5 feet
-    SPIRIT_LINK_RANGE = 6 # 30 feet
-    
-    def __init__(self, name: str):
-        super().__init__(name, hp=32, ac=16, attack_bonus=6)
-        self.color = CLERIC_COLOR
-        # self.shield_up = False
-        self.load_sprite(IMAGE_PATHS['cleric'])
-        
-    def get_actions(self, game: 'Game') -> List[Tuple[str, GridPosition, callable]]:
-        """Get available actions for the cleric"""
-        actions = []  # Start fresh instead of using super()
-        
-        # Add Stride action button (doesn't show movement squares yet)
-        if game.actions_left >= 1:
-            actions.append(("Stride [1]", self.position, lambda: self.select_stride(game)))
-            
-        # Add Heal action (potion)
-        if game.actions_left >= 1 and self.potions > 0:
-            actions.append(("Potion [1]", self.position, lambda: self.heal(game)))
-        
-        # Add spells that need targeting
-        if game.selected_target and game.selected_target.is_alive():
-            distance = self.position.distance_to(game.selected_target.position)
-            target = game.selected_target  # Store target to avoid lambda capture issues
-            
-            # Add Strike if in melee range and have enough actions
-            if distance <= 1 and game.actions_left >= 1:
-                actions.append(("Strike [1]", self.position,
-                              ("Strike", lambda t: self.attack(t, game, dice=(1, 6)))))
-            
-            # Add Spirit Link if in range and have enough actions
-            if distance <= self.SPIRIT_LINK_RANGE and game.actions_left >= 1:
-                actions.append(("Spirit Link [1]", self.position,
-                              ("Spirit Link", lambda t: self.spirit_link(target, game))))
-            
-            # Add Sanctuary if in range and have enough actions
-            if distance <= self.SANCTUARY_RANGE and game.actions_left >= 1:
-                actions.append(("Sanctuary [1]", self.position,
-                              ("Sanctuary", lambda t: self.sanctuary(target, game))))
-            
-            # Add Heal [1] if in touch range
-            if distance <= self.LESSER_HEAL_RANGE and game.actions_left >= 1:
-                actions.append(("Heal [1]", self.position,
-                                ("Heal (1)", lambda t: self.lesser_heal(target, game, 1))))
-
-            # Add Heal [2] if in 30-foot range
-            if  distance <= self.LESSER_HEAL_UP_RANGE and game.actions_left >= 2:
-                actions.append(("Heal [2]", self.position,
-                                ("Heal (2)", lambda t: self.lesser_heal(target, game, 2))))
-
-            # Add Heal [3] (AoE, no target check needed)
-            if game.actions_left >= 3:
-                actions.append(("Heal [3]", self.position,
-                                ("Heal (3)", lambda t: self.lesser_heal(target, game, 3))))
-        
-        # Always add End Turn action
-        actions.append(("End Turn [0]", self.position, lambda: game.next_turn()))
-        
-        return actions
-        
-    def spirit_link(self, target: 'Character', game: 'Game') -> Tuple[int, bool]:
-        """Cast Spirit Link to balance HP between self and the target."""
-        distance = self.position.distance_to(target.position)
-        if distance > self.SPIRIT_LINK_RANGE:
-            game.add_message(f"{target.name} is out of range for Spirit Link (range: 30 feet).")
-            return 0, False
-
-        # Calculate average HP (rounded down)
-        total_hp = self.hp + target.hp
-        new_hp = total_hp // 2
-
-        # Show visual effect
-        game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), SPIRIT_LINK_COLOR, effect_type="link"))
-
-        game.add_message(f"{self.name} casts Spirit Link on {target.name} to equalize their HP.")
-        game.add_message(f"HP Before: {self.name} = {self.hp} HP | {target.name} = {target.hp} HP")
-
-        # Set both HPs to the average
-        self.hp = min(new_hp, self.max_hp)
-        target.hp = min(new_hp, target.max_hp)
-
-        game.add_message(f"HP After: {self.name} = {self.hp}/{self.max_hp} | {target.name} = {target.hp}/{target.max_hp}")
-
-        return 1, True  # Consumes 1 action
-    
-    def sanctuary(self, target: 'Character', game: 'Game') -> Tuple[int, bool]:
-        """Cast Sanctuary to protect an ally from hostile actions"""
-        distance = self.position.distance_to(target.position)
-        if distance > self.SANCTUARY_RANGE:
-            game.add_message(f"{target.name} is out of range for Sanctuary (range: 5 feet).")
-            return 0, False
-
-        # No visual effect - just the persistent golden glow on the character
-        game.add_message(f"{self.name} casts Sanctuary on {target.name}.")
-        game.add_message(f"{target.name} is protected by divine sanctuary - enemies must overcome their reluctance to attack!")
-
-        target.add_condition("Sanctuary", duration=3)  # Lasts 3 rounds
-        return 1, True
-        
-
-    def lesser_heal(self, target: 'Character', game: 'Game', action_count: int) -> Tuple[int, bool]:
-        """Cast Lesser Heal with variable action cost (1–3 actions)"""
-        if game.actions_left < action_count:
-            game.add_message("Not enough actions to cast Lesser Heal.")
-            return 0, False
-
-        distance = self.position.distance_to(target.position)
-        if action_count == 1 and distance > 1:
-            game.add_message("Lesser Heal [1 Action] is touch only — target too far.")
-            return 0, False
-        elif action_count in (2, 3) and distance > self.LESSER_HEAL_UP_RANGE:
-            game.add_message("Lesser Heal [2+ Actions] requires target within 30 feet.")
-            return 0, False
-
-        game.add_message(f"{self.name} casts Lesser Heal with {action_count} action(s)!")
-
-        if action_count == 1:
-            # 1-action: touch only
-            dice_roll = random.randint(1, 8)
-            heal_amount = dice_roll
-            game.add_message(f"Healing: d8 = [{dice_roll}] = {heal_amount}")
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
-            old_hp = target.hp
-            target.hp = min(target.hp + heal_amount, target.max_hp)
-            healed = target.hp - old_hp
-            game.add_message(f"{target.name} heals for {healed} HP. Now at {target.hp}/{target.max_hp} HP.")
-
-        elif action_count == 2:
-            # 2-actions: ranged + bonus healing
-            dice_roll = random.randint(1, 8)
-            heal_amount = dice_roll + 8
-            game.add_message(f"Healing: d8 + 8 = [{dice_roll}] + 8 = {heal_amount}")
-            game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
-            old_hp = target.hp
-            target.hp = min(target.hp + heal_amount, target.max_hp)
-            healed = target.hp - old_hp
-            game.add_message(f"{target.name} heals for {healed} HP. Now at {target.hp}/{target.max_hp} HP.")
-
-        else:
-            # 3-actions: AoE to all friendlies within 30 feet
-            dice_roll = random.randint(1, 8)
-            heal_amount = dice_roll
-            game.add_message(f"Healing: d8 = [{dice_roll}] = {heal_amount}")
-            game.add_message(f"A wave of healing energy pulses outward from {self.name}, restoring {heal_amount} HP to all allies in range!")
-
-            for char in game.party:
-                if not char.is_alive() or char.is_enemy:
-                    continue
-                if self.position.distance_to(char.position) <= self.LESSER_HEAL_UP_RANGE:
-                    old_hp = char.hp
-                    char.hp = min(char.hp + heal_amount, char.max_hp)
-                    healed = char.hp - old_hp
-                    game.add_effect(Effect(self.get_pixel_pos(), char.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
-                    if healed > 0:
-                        game.add_message(f"{char.name} heals for {healed} HP. Now at {char.hp}/{char.max_hp} HP.")
-                    else:
-                        game.add_message(f"{char.name} is already at full HP.")
-
-        return action_count, True
 
 class Enemy(Character):
-    """
-    Enemy class representing various hostile creatures.
-    Implements AI behavior and enemy-specific attributes.
-    Different enemy types (Goblin, Ogre, Wyvern) have unique stats and abilities.
-    
-    Enemy Types:
-        - Goblin: Basic enemy with balanced stats
-        - Ogre: Tough enemy with high damage
-        - Wyvern: Boss enemy with high stats across the board
-    """
     def __init__(self, name: str, hp: int, ac: int, attack_bonus: int, damage_dice: Tuple[int, int] = (1, 8)):
         super().__init__(name, hp, ac, attack_bonus)
         self.damage_dice = damage_dice
@@ -1453,32 +937,13 @@ class Enemy(Character):
         return actions
 
 class Game:
-    """
-    Main game class handling the core game loop and state management.
-    Controls game flow, UI rendering, input handling, and battle mechanics.
-    
-    Features:
-        - Turn-based combat system
-        - Wave-based progression
-        - Character upgrades between waves
-        - Visual effects and animations
-        - Message log system
-        - Multiple game states (combat, upgrade, wave confirmation)
-        
-    Game Flow:
-        1. Player selects character class
-        2. Battle starts with wave 1 (Goblins)
-        3. After each wave, characters can be upgraded
-        4. Wave 2 features Ogres
-        5. Final wave 3 features the Wyvern boss
-        6. Victory achieved after defeating all waves
-    """
     def __init__(self):
         self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
         pygame.display.set_caption("PF2E Grid Combat")
         
         self.clock = pygame.time.Clock()
         self.state = "intro"
+        self.selected_action = None
         self.selected_character = None
         self.selected_target = None
         self.highlighted_squares = []
@@ -1499,27 +964,8 @@ class Game:
         self.wave_announcement_end = 0
         self.upgrade_selection = None
         self.available_upgrades = ["Accuracy", "Damage", "Speed", "Vitality"]
+        self.wave_summary = None
         self.effects = []  # List to store active effects
-        self.showing_help = False  # State for help overlay
-        self.help_button_rect = None  # Store help button rectangle
-        self.ai_action_queue = []  # Queue of AI actions to perform
-        self.ai_current_char = None  # Current AI character taking actions
-        self.ai_actions_remaining = 0  # Actions left for current AI character
-        self._schedule_next_ai_action = False  # Flag to schedule next AI action after delay
-        self._end_turn_after_delay = False  # Flag to end turn after delay
-        self.current_enemy_idx = 0  # Current enemy index for turn management
-        self.enemy_actions_remaining = 0  # Actions left for current enemy
-        self._schedule_next_enemy_action = False  # Flag to schedule next enemy action after delay
-        
-        # Victory overlay variables
-        self.victory_overlay_active = False
-        self.victory_overlay_start = 0
-        self.victory_overlay_duration = 3000  # 3 seconds
-        
-        # Upgrade help variables
-        self.first_time_upgrades = True
-        self.showing_upgrade_help = False
-        self.upgrade_help_button_rect = None
         
         # Create surfaces
         self.grid_surface = pygame.Surface((GRID_COLS * GRID_SIZE, GRID_ROWS * GRID_SIZE))
@@ -1556,16 +1002,13 @@ class Game:
     def add_message(self, message: str):
         """Add a message to the message log"""
         self.messages.append(message)
-        print(message)  # Also print to terminal/console
         # Automatically scroll to bottom when new message arrives
         self.message_scroll = max(0, len(self.messages) - 8)  # Show last 8 messages
     
     def get_all_characters(self) -> List['Character']:
-        """Get list of all characters in the game that are actually on the grid"""
+        """Get list of all characters in the game"""
         chars = self.party.copy()
-        # Only include enemies that are positioned on the grid (not at -1, -1)
-        chars.extend([enemy for enemy in self.current_enemies 
-                     if enemy.position.x >= 0 and enemy.position.y >= 0])
+        chars.extend(self.enemies)
         return chars
     
     def draw_action_buttons(self):
@@ -1577,14 +1020,9 @@ class Game:
             return
             
         # Calculate button layout
-        num_buttons = len(self.available_actions)
-        total_margin = (num_buttons - 1) * BUTTON_MARGIN
-        available_width = WINDOW_WIDTH - 40  # Leave 20px margin on each side
-        button_width = min(150, (available_width - total_margin) // num_buttons)
+        button_width = 150
         button_height = 40
-        
-        # Calculate total width of all buttons with margins
-        total_width = (button_width * num_buttons) + total_margin
+        total_width = len(self.available_actions) * (button_width + BUTTON_MARGIN) - BUTTON_MARGIN
         start_x = (WINDOW_WIDTH - total_width) // 2
         
         # Draw each action button
@@ -1607,31 +1045,6 @@ class Game:
 
     def handle_click(self, pos: Tuple[int, int], right_click: bool = False):
         """Handle mouse click events"""
-        # Don't handle any clicks during victory overlay
-        if self.victory_overlay_active:
-            return
-            
-        # If help overlay is showing, clicking anywhere closes it
-        if self.showing_help:
-            self.showing_help = False
-            return
-            
-        # If upgrade help overlay is showing, clicking anywhere closes it
-        if self.showing_upgrade_help:
-            self.showing_upgrade_help = False
-            return
-            
-        # Check if help button was clicked
-        if self.help_button_rect and self.help_button_rect.collidepoint(pos):
-            self.showing_help = True
-            return
-            
-        # Check if upgrade help button was clicked (only in upgrade state)
-        if (self.state == "upgrade" and self.upgrade_help_button_rect and 
-            self.upgrade_help_button_rect.collidepoint(pos)):
-            self.showing_upgrade_help = True
-            return
-            
         # Don't handle clicks during action delay
         if self.action_delay > pygame.time.get_ticks():
             return
@@ -1660,7 +1073,7 @@ class Game:
         if self.state == "upgrade":
             if not right_click:  # Only handle left clicks
                 for button_rect, action_func in self.action_buttons:
-                    if button_rect.collidepoint(pos):
+                    if button_rect.collidepoint(pos[0], pos[1]):
                         action_func()
                         return
             return
@@ -1669,7 +1082,7 @@ class Game:
         if self.state == "wave_confirmation":
             if not right_click:  # Only handle left clicks
                 for button_rect, action_func in self.action_buttons:
-                    if button_rect.collidepoint(pos):
+                    if button_rect.collidepoint(pos[0], pos[1]):
                         action_func()
                         return
             return
@@ -1705,7 +1118,7 @@ class Game:
         
         # Handle grid clicks
         grid_x = pos[0] // GRID_SIZE
-        grid_y = (pos[1] - GRID_TOP) // GRID_SIZE  # Adjust for turn indicator offset
+        grid_y = (pos[1] - 50) // GRID_SIZE  # Adjust for turn indicator offset
         
         if not (0 <= grid_x < GRID_COLS and 0 <= grid_y < GRID_ROWS):
             return
@@ -1715,8 +1128,7 @@ class Game:
         # Handle right-click targeting
         if right_click and self.current_member_idx < len(self.party):
             current_char = self.party[self.current_member_idx]
-            
-            # First check for enemies
+            # Find enemy at clicked position
             for enemy in self.current_enemies:
                 if enemy.position == clicked_pos and enemy.is_alive():
                     distance = current_char.position.distance_to(enemy.position)
@@ -1726,8 +1138,6 @@ class Game:
                         valid_target = distance <= 1  # Melee range
                     elif isinstance(current_char, Wizard):
                         valid_target = distance <= current_char.MAGIC_MISSILE_RANGE
-                    elif isinstance(current_char, Cleric):
-                        valid_target = distance <= current_char.SPIRIT_LINK_RANGE
                     
                     if valid_target:
                         self.selected_character = current_char
@@ -1737,22 +1147,6 @@ class Game:
                     else:
                         self.add_message(f"{enemy.name} is out of range!")
                     return
-            
-            # Then check for allies (for Cleric spells)
-            if isinstance(current_char, Cleric):
-                for ally in self.party:
-                    if ally != current_char and ally.position == clicked_pos and ally.is_alive():
-                        distance = current_char.position.distance_to(ally.position)
-                        valid_target = distance <= current_char.SPIRIT_LINK_RANGE
-                        
-                        if valid_target:
-                            self.selected_character = current_char
-                            self.selected_target = ally
-                            self.add_message(f"Selected {ally.name} as target. Choose an action.")
-                            self.update_available_actions()
-                        else:
-                            self.add_message(f"{ally.name} is out of range!")
-                        return
             
             # If we clicked empty space or invalid target, clear the target
             self.selected_target = None
@@ -1824,8 +1218,7 @@ class Game:
             self.available_actions = [
                 ("Fighter", GridPosition(2, 3), lambda: self.choose_class("Fighter")),
                 ("Rogue", GridPosition(4, 3), lambda: self.choose_class("Rogue")),
-                ("Wizard", GridPosition(6, 3), lambda: self.choose_class("Wizard")),
-                ("Cleric", GridPosition(8, 3), lambda: self.choose_class("Cleric"))
+                ("Wizard", GridPosition(6, 3), lambda: self.choose_class("Wizard"))
             ]
         elif self.state == "upgrade":
             # Show upgrade options for current character
@@ -1847,24 +1240,22 @@ class Game:
     
     def choose_class(self, choice: str):
         """Handle class selection"""
+        self.add_message(f"\nDebug: Choosing {choice} class")
         if choice == "Fighter":
             player = Fighter("Valeros")
-            self.party = [player, Rogue("Merisiel"), Wizard("Ezren"), Cleric("Kyra")]
+            self.party = [player, Rogue("Merisiel"), Wizard("Ezren")]
         elif choice == "Rogue":
             player = Rogue("Merisiel")
-            self.party = [player, Fighter("Valeros"), Wizard("Ezren"), Cleric("Kyra")]
-        elif choice == "Wizard":
+            self.party = [player, Fighter("Valeros"), Wizard("Ezren")]
+        else:  # Wizard
             player = Wizard("Ezren")
-            self.party = [player, Fighter("Valeros"), Rogue("Merisiel"), Cleric("Kyra")]
-        elif choice == "Cleric":
-            player = Cleric("Kyra")
-            self.party = [player, Fighter("Valeros"), Rogue("Merisiel"), Wizard("Ezren")]
+            self.party = [player, Fighter("Valeros"), Rogue("Merisiel")]
         
-        # Set initial positions for party members higher up the grid
+        # Set initial positions for party members
         for i, member in enumerate(self.party):
-            member.position = GridPosition(i + 1, GRID_ROWS - 5)
+            member.position = GridPosition(i + 1, GRID_ROWS - 2)
         
-        # Create enemies for all waves but position them OFF-GRID initially
+        # Create enemies for all waves
         self.enemies = [
             # Wave 1
             Enemy("Goblin", hp=20, ac=15, attack_bonus=5),
@@ -1877,47 +1268,53 @@ class Game:
             Enemy("Wyvern", hp=55, ac=19, attack_bonus=9, damage_dice=(2, 8))
         ]
         
-        # Position all enemies OFF-GRID initially
-        for enemy in self.enemies:
-            enemy.position = GridPosition(-1, -1)  # Off-grid position
-        
         self.wave_number = 0  # Explicitly set wave number to 0
         self.state = "combat"
+        self.add_message("Debug: Starting first battle")
         self.start_battle()
 
     def start_battle(self):
         """Start a new battle or the next wave"""
+        self.add_message(f"\nDebug: Starting battle. Current wave: {self.wave_number}")
+        
         if not any(m.is_alive() for m in self.party):
+            self.add_message("Debug: No party members alive, ending battle")
             self.end_battle()
             return
             
         # Always increment wave number at the start of a new battle
         self.wave_number += 1
+        self.add_message(f"Debug: Incremented wave number to {self.wave_number}")
 
         # Reset party member positions at the start of each wave
         for i, member in enumerate(self.party):
             if member.is_alive():
-                member.position = GridPosition(i + 1, GRID_ROWS - 5)
+                member.position = GridPosition(i + 1, GRID_ROWS - 2)
 
         # Determine number of enemies for the current wave
         if self.wave_number == 1: # First wave (Goblins)
             num_enemies_this_wave = 3
             self.show_wave_announcement("Wave 1: Goblins")
             positions = [(GRID_COLS - 4, 1), (GRID_COLS - 2, 1), (GRID_COLS - 1, 2)]
+            self.add_message("Debug: Setting up Wave 1 - Goblins")
         elif self.wave_number == 2: # Second wave (Ogres)
             num_enemies_this_wave = 2
             self.show_wave_announcement("Wave 2: Ogres' Fury")
             positions = [(GRID_COLS - 3, 1), (GRID_COLS - 1, 1)]
+            self.add_message("Debug: Setting up Wave 2 - Ogres")
         elif self.wave_number == 3: # Third wave (Wyvern Boss)
             num_enemies_this_wave = 1
             self.show_wave_announcement("Wave 3: The Wyvern Lord!")
             positions = [(GRID_COLS // 2, 1)]
+            self.add_message("Debug: Setting up Wave 3 - Wyvern")
         else:
+            self.add_message(f"Debug: Invalid wave number {self.wave_number}, ending battle")
             self.end_battle(victory=True)
             return
 
         # Check if we have enough enemies for this wave
         if len(self.enemies) < num_enemies_this_wave:
+            self.add_message(f"Debug: Not enough enemies for wave {self.wave_number}. Needed {num_enemies_this_wave}, have {len(self.enemies)}")
             self.end_battle(victory=True)
             return
 
@@ -1946,14 +1343,12 @@ class Game:
         self.actions_left = 3
         
         if self.current_member_idx >= len(self.party):
-            # Enemy's turn - start with first alive enemy
-            alive_enemies = [enemy for enemy in self.current_enemies if enemy.is_alive()]
-            if alive_enemies:
-                self.current_enemy = alive_enemies[0]
-                self.current_enemy_idx = 0
-                self.handle_enemy_turn(self.current_enemy)
-            else:
-                self.current_member_idx = 0
+            # Enemy's turn
+            for enemy in self.current_enemies:
+                if enemy.is_alive():
+                    self.current_enemy = enemy
+                    self.handle_enemy_turn()
+            self.current_member_idx = 0
             
             # Reset any per-turn effects
             for char in self.party:
@@ -1965,134 +1360,44 @@ class Game:
             
             # Check if wave is complete after enemy turns
             self.check_wave_complete()
-        else:
-            # Check if current character is AI-controlled (not the player's chosen class)
-            current_char = self.party[self.current_member_idx]
-            if current_char != self.party[0]:  # If not the player's character
-                self.handle_ai_turn(current_char)
-                # Don't call next_turn() here - let the AI system handle turn progression
-        
-        # Update conditions for all characters at the end of each complete round
-        if self.current_member_idx == 0:  # Start of a new round
-            for char in self.party:
-                if char.is_alive():
-                    old_conditions = list(char.conditions.keys())
-                    char.update_conditions()
-                    new_conditions = list(char.conditions.keys())
-                    
-                    # Report expired conditions
-                    for condition in old_conditions:
-                        if condition not in new_conditions:
-                            self.add_message(f"{char.name}'s {condition} condition expires.")
-            
-            for enemy in self.current_enemies:
-                if enemy.is_alive():
-                    old_conditions = list(enemy.conditions.keys())
-                    enemy.update_conditions()
-                    new_conditions = list(enemy.conditions.keys())
-                    
-                    # Report expired conditions
-                    for condition in old_conditions:
-                        if condition not in new_conditions:
-                            self.add_message(f"{enemy.name}'s {condition} condition expires.")
         
         self.update_available_actions()
     
-    def handle_enemy_turn(self, enemy):
-        """Handle enemy AI turn with delayed actions"""
-        if not enemy or not enemy.is_alive():
-            self.next_enemy_turn()
+    def handle_enemy_turn(self):
+        """Handle enemy AI turn"""
+        if not self.current_enemy or not self.current_enemy.is_alive():
             return
             
-        self.add_message(f"\n{enemy.name}'s turn!")
+        self.add_message(f"\n{self.current_enemy.name}'s turn!")
+        actions = 3
         
-        # Set up enemy turn state
-        self.current_enemy = enemy
-        self.enemy_actions_remaining = 3
-        
-        # Start the first enemy action
-        self.perform_next_enemy_action()
-
-    def perform_next_enemy_action(self):
-        """Perform the next enemy action with appropriate delay"""
-        if not self.current_enemy or not self.current_enemy.is_alive() or self.enemy_actions_remaining <= 0:
-            # Enemy turn is complete, move to next enemy
-            self.next_enemy_turn()
-            return
-        
-        enemy = self.current_enemy
-        
-        # Find closest living party member
-        targets = [(char, enemy.position.distance_to(char.position))
-                  for char in self.party if char.is_alive()]
-        if not targets:
-            # No valid targets, end turn
-            self.next_enemy_turn()
-            return
+        while actions > 0:
+            # Find closest living party member
+            targets = [(char, self.current_enemy.position.distance_to(char.position))
+                      for char in self.party if char.is_alive()]
+            if not targets:
+                break
+                
+            target, distance = min(targets, key=lambda x: x[1])
             
-        target, distance = min(targets, key=lambda x: x[1])
-        
-        action_performed = False
-        
-        if distance <= 1:
-            # Attack if in range
-            used, _ = enemy.attack(target, self)
-            self.enemy_actions_remaining -= used
-            action_performed = True
-        else:
-            # Move towards target
-            moves = enemy.get_valid_moves(self)
-            if moves:
-                best_move = min(moves, 
-                              key=lambda pos: pos.distance_to(target.position))
-                if enemy.move_to(best_move, self):
-                    self.enemy_actions_remaining -= 1
-                    action_performed = True
+            if distance <= 1:
+                # Attack if in range
+                used, _ = self.current_enemy.attack(target, self)
+                actions -= used
             else:
-                # No valid moves, end turn
-                self.next_enemy_turn()
-                return
+                # Move towards target
+                moves = self.current_enemy.get_valid_moves(self)
+                if moves:
+                    best_move = min(moves, 
+                                  key=lambda pos: pos.distance_to(target.position))
+                    if self.current_enemy.move_to(best_move, self):
+                        actions -= 1
+                else:
+                    break
         
-        # If an action was performed, set a delay before the next action
-        if action_performed:
-            self.action_delay = pygame.time.get_ticks() + 1500  # 1.5 second delay between enemy actions
-            # Schedule the next enemy action
-            self._schedule_next_enemy_action = True
-        else:
-            # No valid action found, end turn
-            self.next_enemy_turn()
-
-    def next_enemy_turn(self):
-        """Move to the next enemy or end enemy phase"""
-        alive_enemies = [enemy for enemy in self.current_enemies if enemy.is_alive()]
-        self.current_enemy_idx += 1
-        
-        if self.current_enemy_idx < len(alive_enemies):
-            # Move to next enemy
-            self.current_enemy = alive_enemies[self.current_enemy_idx]
-            self.handle_enemy_turn(self.current_enemy)
-        else:
-            # All enemies have acted, end enemy phase
-            self.current_member_idx = 0
-            self.current_enemy = None
-            self.current_enemy_idx = 0
-            
-            # Reset any per-turn effects
-            for char in self.party:
-                if isinstance(char, Wizard):
-                    if char.shield_up:
-                        char.shield_up = False
-                        char.base_ac -= 2
-                        self.add_message(f"{char.name}'s Shield spell fades")
-            
-            # Check if battle is over
-            if not any(char.is_alive() for char in self.party):
-                self.end_battle()
-                return
-            
-            # Check if wave is complete after enemy turns
-            self.check_wave_complete()
-            self.update_available_actions()
+        # Check if battle is over
+        if not any(char.is_alive() for char in self.party):
+            self.end_battle()
 
     def end_battle(self, victory=False):
         """End the current battle or game"""
@@ -2196,20 +1501,16 @@ class Game:
     
     def draw_messages(self):
         """Draw the message log with scrolling"""
-        # Draw a clear, visible message log box above the action buttons
-        log_height = 220
-        self.message_surface = pygame.Surface((WINDOW_WIDTH - 40, log_height))
-        self.message_surface.fill((20, 20, 20))  # Dark background for contrast
-        pygame.draw.rect(self.message_surface, (255, 200, 100), self.message_surface.get_rect(), 2)  # Golden border
-
+        self.message_surface.fill((30, 30, 30))
+        
         # Draw scroll indicators if needed
         if self.message_scroll > 0:
             text = FONT.render("▲ More", True, TEXT_COLOR)
             self.message_surface.blit(text, (5, 0))
         if self.message_scroll < len(self.messages) - 8:
             text = FONT.render("▼ More", True, TEXT_COLOR)
-            self.message_surface.blit(text, (5, log_height - 25))
-
+            self.message_surface.blit(text, (5, 175))
+        
         # Draw visible messages
         y = 25
         visible_messages = self.messages[self.message_scroll:self.message_scroll + 8]
@@ -2228,22 +1529,10 @@ class Game:
                 current = self.party[self.current_member_idx]
                 color = current.color
                 text = f"{current.name}'s Turn"
-                # Draw action points for party members
-                action_text = f"Actions: {self.actions_left}"
-                action_surf = FONT.render(action_text, True, TEXT_COLOR)
-                self.screen.blit(action_surf, (220, 10))
             else:
-                # Enemy turn
-                if self.current_enemy:
-                    color = ENEMY_COLOR
-                    text = f"{self.current_enemy.name}'s Turn"
-                    # Draw action points for current enemy
-                    action_text = f"Actions: {self.enemy_actions_remaining}"
-                    action_surf = FONT.render(action_text, True, TEXT_COLOR)
-                    self.screen.blit(action_surf, (220, 10))
-                else:
-                    color = ENEMY_COLOR
-                    text = "Enemy Turn"
+                current = self.current_enemy
+                color = ENEMY_COLOR
+                text = f"Enemy Turn"
             
             # Draw colored border
             pygame.draw.rect(indicator_surface, color, indicator_surface.get_rect(), 2)
@@ -2252,6 +1541,12 @@ class Game:
             text_surf = FONT.render(text, True, TEXT_COLOR)
             text_rect = text_surf.get_rect(center=indicator_surface.get_rect().center)
             indicator_surface.blit(text_surf, text_rect)
+            
+            # Draw action points
+            if self.current_member_idx < len(self.party):
+                action_text = f"Actions: {self.actions_left}"
+                action_surf = FONT.render(action_text, True, TEXT_COLOR)
+                self.screen.blit(action_surf, (220, 10))
             
             self.screen.blit(indicator_surface, (10, 10))
     
@@ -2277,42 +1572,29 @@ class Game:
         else:  # Combat or Class Select
             # Draw combat grid
             self.draw_grid()
-            self.screen.blit(self.grid_surface, (0, GRID_TOP))
-
+            self.screen.blit(self.grid_surface, (0, 50))
+            
             # Draw turn indicator
             self.draw_turn_indicator()
-
-            # Draw message log (now always visible and clear)
+            
+            # Draw message log
             self.draw_messages()
-            self.screen.blit(self.message_surface, (20, WINDOW_HEIGHT - 320))  # Place above action buttons
-
+            self.screen.blit(self.message_surface, 
+                            (20, 50 + (GRID_ROWS * GRID_SIZE) + 20))
+            
             # Draw action buttons
             self.draw_action_buttons()
-            self.screen.blit(self.action_surface, (0, WINDOW_HEIGHT - 100))
-
+            self.screen.blit(self.action_surface, 
+                            (0, WINDOW_HEIGHT - 100))
+            
             # Draw all active effects
             for effect in self.effects:
                 effect.draw(self.screen)
-
-        # Draw wave announcement overlay
-        self.draw_wave_announcement()
+            
+            # Draw wave announcement overlay if active
+            if self.state == "combat":
+                self.draw_wave_announcement()
         
-        # Draw victory overlay if active
-        if self.victory_overlay_active:
-            self.draw_victory_overlay()
-
-        # Draw help button (always visible except on intro/victory/game_over screens)
-        if self.state not in ["intro", "victory", "game_over"]:
-            self.draw_help_button()
-            if self.state == "upgrade":
-                self.draw_upgrade_help_button()
-
-        # Draw help overlay if showing
-        if self.showing_help:
-            self.draw_help_overlay()
-        elif self.showing_upgrade_help:
-            self.draw_upgrade_help_overlay()
-
         pygame.display.flip()
 
     def draw_end_game_screen(self):
@@ -2374,45 +1656,13 @@ class Game:
         while running:
             current_time = pygame.time.get_ticks()
             
-            # Handle victory overlay timing
-            if self.victory_overlay_active:
-                if current_time - self.victory_overlay_start >= self.victory_overlay_duration:
-                    self.victory_overlay_active = False
-                    # Proceed to next phase after victory overlay
-                    if self.wave_number == 3:  # Final wave completed
-                        self.end_battle(victory=True)
-                    else:  # Wave 1 or 2 completed
-                        self.start_upgrades()
-                # During victory overlay, skip all other input handling
-                self.update_effects()
-                self.draw()
-                self.clock.tick(60)
-                continue
-            
             if self.action_delay > current_time:
                 # Update and draw effects even during delay
                 self.update_effects()
                 self.draw()
                 self.clock.tick(60)
                 continue
-            
-            # Check if we need to perform the next AI action after delay
-            if hasattr(self, '_schedule_next_ai_action') and self._schedule_next_ai_action:
-                self._schedule_next_ai_action = False
-                self.perform_next_ai_action()
-                continue
-            
-            # Check if we need to perform the next enemy action after delay
-            if hasattr(self, '_schedule_next_enemy_action') and self._schedule_next_enemy_action:
-                self._schedule_next_enemy_action = False
-                self.perform_next_enemy_action()
-                continue
-            
-            # If turn should end after delay, do it now
-            if hasattr(self, '_end_turn_after_delay') and self._end_turn_after_delay:
-                self._end_turn_after_delay = False
-                self.next_turn()
-            
+                
             try:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
@@ -2455,28 +1705,6 @@ class Game:
                 return [enemy for enemy in self.current_enemies 
                        if enemy.is_alive() and 
                        current_char.position.distance_to(enemy.position) <= current_char.MAGIC_MISSILE_RANGE]
-        elif isinstance(current_char, Cleric):
-            if "Strike" in action_name:
-                return [enemy for enemy in self.current_enemies
-                       if enemy.is_alive() and
-                       current_char.position.distance_to(enemy.position) <= 1]
-            elif "Spirit Link" in action_name:
-                return [ally for ally in self.party 
-                       if ally != current_char and ally.is_alive() and 
-                       current_char.position.distance_to(ally.position) <= current_char.SPIRIT_LINK_RANGE]
-            elif "Sanctuary" in action_name:
-                return [ally for ally in self.party 
-                       if ally != current_char and ally.is_alive() and 
-                       current_char.position.distance_to(ally.position) <= current_char.SANCTUARY_RANGE]
-            elif "Lesser Heal" in action_name:
-                if "1" in action_name:  # Touch range
-                    return [ally for ally in self.party 
-                           if ally != current_char and ally.is_alive() and 
-                           current_char.position.distance_to(ally.position) <= current_char.LESSER_HEAL_RANGE]
-                else:  # 30-foot range
-                    return [ally for ally in self.party 
-                           if ally != current_char and ally.is_alive() and 
-                           current_char.position.distance_to(ally.position) <= current_char.LESSER_HEAL_UP_RANGE]
         elif isinstance(current_char, (Fighter, Rogue)): # Basic melee targeting for now
              return [enemy for enemy in self.current_enemies
                    if enemy.is_alive() and
@@ -2497,12 +1725,9 @@ class Game:
             if actions_used > 0: 
                 self.action_delay = pygame.time.get_ticks() + 1000
                 self.actions_left = max(0, self.actions_left - actions_used)
-                # Schedule next_turn to happen after the delay if out of actions
                 if self.actions_left <= 0:
-                    # Instead of calling next_turn() immediately, schedule it after the delay
-                    self._end_turn_after_delay = True
-                else:
-                    self._end_turn_after_delay = False
+                    self.action_delay += 500 
+                    self.next_turn()
                 # Check for wave completion only if the action was successful or had an effect
                 # For attacks, success means hit. For other actions, it means they completed.
                 if success: 
@@ -2510,9 +1735,7 @@ class Game:
             elif success: # Action used 0 points but was successful (e.g. selecting Stride)
                  pass # Do nothing specific here, Stride is handled on move click
         
-        # Only update available actions if actions_left > 0 or turn is not scheduled to end
-        if self.actions_left > 0 or not (hasattr(self, '_end_turn_after_delay') and self._end_turn_after_delay):
-            self.update_available_actions() # Always update actions after an attempt
+        self.update_available_actions() # Always update actions after an attempt
         return result
 
     def start_game(self):
@@ -2522,80 +1745,40 @@ class Game:
         self.update_available_actions()
 
     def draw_intro_screen(self):
-        """Draw the introduction screen with improved spacing and centering"""
+        """Draw the introduction screen"""
         self.screen.fill(BACKGROUND_COLOR)
         
-        title = LARGE_TITLE_FONT.render("PF2E Grid Combat Simulator", True, TITLE_COLOR)
-        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 60))
+        title = LARGE_TITLE_FONT.render("Pathfinder 2E Combat Simulator", True, TITLE_COLOR)
+        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 80))
         self.screen.blit(title, title_rect)
         
-        subtitle = TITLE_FONT.render("By: Runtime Terrors", True, TEXT_COLOR)
-        subtitle_rect = subtitle.get_rect(center=(WINDOW_WIDTH//2, 100))
-        self.screen.blit(subtitle, subtitle_rect)
-        
-        # Intro content as (text, type) tuples for better spacing
-        intro_content = [
-            ("Welcome Pathfinders!", "header"),
-            ("", "spacer"),
-            ("You lead a party of three adventurers against waves of increasingly dangerous foes. Work together, use tactical positioning, and manage your actions wisely to survive!", "paragraph"),
-            ("", "section_gap"),
-            ("Controls:", "section_header"),
-            ("Left-click: Select characters, actions, and movement squares", "bullet"),
-            ("Right-click: Target enemies for attacks/spells", "bullet"),
-            ("Mouse wheel: Scroll combat log", "bullet"),
-            ("", "section_gap"),
-            ("Combat Rules:", "section_header"),
-            ("Each character has 3 actions per turn.", "bullet"),
-            ("Movement (Stride) costs 1 action.", "bullet"),
-            ("Attacks & Spells usually cost 1 action (some 2 or more).", "bullet"),
-            ("Flanking enemies (ally on opposite side) makes them Off-Guard (-2 AC).", "bullet"),
-            ("", "section_gap"),
-            ("Party Members:", "section_header"),
-            ("Fighter: Tough warrior, excels at melee.", "bullet"),
-            ("Rogue: Agile striker, benefits from Off-Guard targets.", "bullet"),
-            ("Wizard: Ranged spellcaster with various arcane powers.", "bullet"),
-            ("Cleric: Divine spellcaster specializing in healing and support.", "bullet")
+        premise_lines = [
+            "Welcome to the PF2E Grid Combat Simulator!", "",
+            "You lead a party of three adventurers against waves of increasingly",
+            "dangerous foes. Work together, use tactical positioning, and manage",
+            "your actions wisely to survive!", "", "Controls:",
+            "• Left-click: Select characters, actions, and movement squares",
+            "• Right-click: Target enemies for attacks/spells",
+            "• Mouse wheel: Scroll combat log", "", "Combat Rules:",
+            "• Each character has 3 actions per turn.",
+            "• Movement (Stride) costs 1 action.",
+            "• Attacks & Spells usually cost 1 action (some 2 or more).",
+            "• Flanking enemies (ally on opposite side) makes them Off-Guard (-2 AC).", "",
+            "Party Members:",
+            "• Fighter: Tough warrior, excels at melee.",
+            "• Rogue: Agile striker, benefits from Off-Guard targets.",
+            "• Wizard: Ranged spellcaster with various arcane powers."
         ]
-
-        # Centered text block
-        block_width = min(700, WINDOW_WIDTH - 80)
-        x_left = (WINDOW_WIDTH - block_width) // 2
-        y = 160
-        for text, typ in intro_content:
-            if typ == "header":
-                surf = TITLE_FONT.render(text, True, TITLE_COLOR)
-                self.screen.blit(surf, (x_left, y))
-                y += 38
-            elif typ == "paragraph":
-                # Wrap paragraph text
-                words = text.split()
-                line = ""
-                for word in words:
-                    test_line = line + word + " "
-                    test_surf = FONT.render(test_line, True, TEXT_COLOR)
-                    if test_surf.get_width() > block_width:
-                        surf = FONT.render(line, True, TEXT_COLOR)
-                        self.screen.blit(surf, (x_left, y))
-                        y += 26
-                        line = word + " "
-                    else:
-                        line = test_line
-                if line:
-                    surf = FONT.render(line, True, TEXT_COLOR)
-                    self.screen.blit(surf, (x_left, y))
-                    y += 32
-            elif typ == "section_header":
-                surf = TITLE_FONT.render(text, True, TITLE_COLOR)
-                self.screen.blit(surf, (x_left, y))
-                y += 34
-            elif typ == "bullet":
-                surf = FONT.render("• " + text, True, TEXT_COLOR)
-                self.screen.blit(surf, (x_left + 24, y))
-                y += 26
-            elif typ == "section_gap":
-                y += 24
-            elif typ == "spacer":
-                y += 12
+        
+        y = 140
+        for line in premise_lines:
+            is_header = line.endswith(":") and not line.startswith("•")
+            text_surf = TITLE_FONT.render(line, True, TITLE_COLOR) if is_header else FONT.render(line, True, TEXT_COLOR)
+            x_offset = WINDOW_WIDTH//4 if not line.startswith("•") else WINDOW_WIDTH//4 + 20
+            self.screen.blit(text_surf, (x_offset, y))
+            y += 25 if is_header else 20
+            if not line: y += 5 # Extra space for blank lines
+        
         self.draw_action_buttons() # This will draw the single "Start Game" button
         self.screen.blit(self.action_surface, (0, WINDOW_HEIGHT - 100))
 
@@ -2623,28 +1806,6 @@ class Game:
         elif self.wave_announcement and pygame.time.get_ticks() >= self.wave_announcement_end:
             self.wave_announcement = None
 
-    def draw_victory_overlay(self):
-        """Draw the victory overlay when a wave is completed"""
-        # Add semi-transparent black background
-        overlay_bg = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
-        overlay_bg.fill((0, 0, 0))
-        overlay_bg.set_alpha(180)
-        self.screen.blit(overlay_bg, (0, 0))
-        
-        # Draw the victory text with golden color
-        victory_text = "VICTORY!"
-        text = LARGE_TITLE_FONT.render(victory_text, True, (255, 215, 0))  # Gold color
-        text_rect = text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2))
-        self.screen.blit(text, text_rect)
-        
-        # Add a subtle glow effect by drawing the text multiple times with slight offsets
-        for offset in [(-2, -2), (-2, 2), (2, -2), (2, 2)]:
-            glow_text = LARGE_TITLE_FONT.render(victory_text, True, (255, 255, 150))  # Lighter gold
-            glow_rect = text_rect.copy()
-            glow_rect.x += offset[0]
-            glow_rect.y += offset[1]
-            self.screen.blit(glow_text, glow_rect)
-
     def start_upgrades(self):
         """Start the upgrade selection process"""
         # Heal all party members to full
@@ -2655,12 +1816,6 @@ class Game:
         
         self.state = "upgrade"
         self.upgrade_selection = 0  # Start with first party member
-        
-        # Show upgrade instructions the first time
-        if self.first_time_upgrades:
-            self.showing_upgrade_help = True
-            self.first_time_upgrades = False
-        
         self.update_available_actions()
 
     def apply_upgrade(self, upgrade: str):
@@ -2681,31 +1836,16 @@ class Game:
         if self.state != "combat": return False # Only check during combat
 
         alive_enemies = [e for e in self.current_enemies if e.is_alive()]
+        self.add_message(f"\nChecking wave completion: Wave {self.wave_number}, {len(alive_enemies)} enemies remaining")
         
         if not alive_enemies:
-            # Immediately stop all actions and show victory overlay
-            self.actions_left = 0
-            self.action_delay = 0
-            self._end_turn_after_delay = False
-            self._schedule_next_ai_action = False
-            self._schedule_next_enemy_action = False
-            
-            # Clear any pending actions or selections
-            self.pending_action = None
-            self.selected_target = None
-            self.valid_targets = []
-            
-            # Show victory overlay
-            self.victory_overlay_active = True
-            self.victory_overlay_start = pygame.time.get_ticks()
-            
             if self.wave_number == 3: # Just completed the final wave (Wyvern)
-                # For final victory, we'll handle this in the victory overlay logic
-                pass
+                self.end_battle(victory=True)
             elif self.wave_number < 3: # Completed wave 1 or 2
                 self.add_message("\nWave complete! Time to rest and upgrade!")
+                self.start_upgrades()
             else: # Should not be reached if logic is correct
-                pass
+                self.end_battle()
             return True
         return False
 
@@ -2814,8 +1954,8 @@ class Game:
             y += 30
 
         # Draw continue and quit buttons
-        button_width = 300  # Increased from 250 to 300
-        button_height = 60  # Increased from 50 to 60
+        button_width = 250
+        button_height = 50
         margin = 40
         start_y = WINDOW_HEIGHT - 150
 
@@ -2825,8 +1965,7 @@ class Game:
         pygame.draw.rect(self.screen, BUTTON_COLOR, continue_rect)
         pygame.draw.rect(self.screen, TITLE_COLOR, continue_rect, 2)
         
-        # Use regular FONT instead of TITLE_FONT for button text
-        continue_text = FONT.render("Continue to Next Wave", True, TEXT_COLOR)
+        continue_text = TITLE_FONT.render("Continue to Next Wave", True, TEXT_COLOR)
         text_rect = continue_text.get_rect(center=continue_rect.center)
         self.screen.blit(continue_text, text_rect)
 
@@ -2836,8 +1975,7 @@ class Game:
         pygame.draw.rect(self.screen, BUTTON_COLOR, quit_rect)
         pygame.draw.rect(self.screen, TITLE_COLOR, quit_rect, 2)
         
-        # Use regular FONT for consistency
-        quit_text = FONT.render("Quit Game", True, TEXT_COLOR)
+        quit_text = TITLE_FONT.render("Quit Game", True, TEXT_COLOR)
         text_rect = quit_text.get_rect(center=quit_rect.center)
         self.screen.blit(quit_text, text_rect)
 
@@ -2846,372 +1984,6 @@ class Game:
             (continue_rect, lambda: self.continue_to_next_wave()),
             (quit_rect, lambda: self.quit_game())
         ]
-
-    def draw_help_button(self):
-        """Draw the help button in the top right corner"""
-        button_width = 120
-        button_height = 40
-        self.help_button_rect = pygame.Rect(WINDOW_WIDTH - button_width - 10, 10, button_width, button_height)
-        
-        # Draw button
-        pygame.draw.rect(self.screen, BUTTON_COLOR, self.help_button_rect)
-        pygame.draw.rect(self.screen, TITLE_COLOR, self.help_button_rect, 2)
-        
-        # Draw text
-        text = FONT.render("How to Play", True, TEXT_COLOR)
-        text_rect = text.get_rect(center=self.help_button_rect.center)
-        self.screen.blit(text, text_rect)
-
-    def draw_upgrade_help_button(self):
-        """Draw the upgrade help button next to the How to Play button"""
-        button_width = 140
-        button_height = 40
-        # Position it to the left of the How to Play button
-        self.upgrade_help_button_rect = pygame.Rect(WINDOW_WIDTH - button_width - 140, 10, button_width, button_height)
-        
-        # Draw button
-        pygame.draw.rect(self.screen, BUTTON_COLOR, self.upgrade_help_button_rect)
-        pygame.draw.rect(self.screen, TITLE_COLOR, self.upgrade_help_button_rect, 2)
-        
-        # Draw text
-        text = FONT.render("Upgrade Help", True, TEXT_COLOR)
-        text_rect = text.get_rect(center=self.upgrade_help_button_rect.center)
-        self.screen.blit(text, text_rect)
-
-    def draw_help_overlay(self):
-        """Draw the help overlay with game instructions (improved layout, more space)"""
-        # Semi-transparent background
-        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
-        overlay.fill((0, 0, 0))
-        overlay.set_alpha(180)
-        self.screen.blit(overlay, (0, 0))
-
-        # Help content (sections, headers, and bullets)
-        help_sections = [
-            ("Controls:", [
-                "Left-click: Select characters, actions, and movement squares",
-                "Right-click: Target enemies for attacks/spells",
-                "Mouse wheel: Scroll combat log"
-            ]),
-            ("Combat Rules:", [
-                "Each character has 3 actions per turn.",
-                "Movement (Stride) costs 1 action",
-                "Attacks & Spells usually cost 1 action (some 2 or more)",
-                "Flanking enemies (ally on opposite side) makes them Off-Guard (-2 AC)."
-            ]),
-            ("Party Members:", [
-                "Fighter: Tough warrior, excels at melee.",
-                "Rogue: Agile striker, benefits from Off-Guard targets.",
-                "Wizard: Ranged spellcaster with various arcane powers."
-            ])
-        ]
-
-        # Box dimensions (increased height for more space)
-        box_width = min(800, WINDOW_WIDTH - 80)
-        box_height = 650  # Increased from 520
-        box_x = (WINDOW_WIDTH - box_width) // 2
-        box_y = (WINDOW_HEIGHT - box_height) // 2
-        box_rect = pygame.Rect(box_x, box_y, box_width, box_height)
-
-        # Draw rounded rectangle for help box
-        pygame.draw.rect(self.screen, (30, 30, 30), box_rect, border_radius=18)
-        pygame.draw.rect(self.screen, TITLE_COLOR, box_rect, 3, border_radius=18)
-
-        # Title
-        title = LARGE_TITLE_FONT.render("How to Play", True, TITLE_COLOR)
-        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, box_y + 45))
-        self.screen.blit(title, title_rect)
-
-        # Draw sections
-        y = box_y + 100
-        section_gap = 38
-        bullet_gap = 28
-        left_margin = box_x + 36
-        for header, bullets in help_sections:
-            # Header
-            header_surf = TITLE_FONT.render(header, True, TITLE_COLOR)
-            self.screen.blit(header_surf, (left_margin, y))
-            y += section_gap
-            # Bullets
-            for bullet in bullets:
-                bullet_surf = FONT.render("• " + bullet, True, TEXT_COLOR)
-                self.screen.blit(bullet_surf, (left_margin + 18, y))
-                y += bullet_gap
-            y += 10  # Extra space after each section
-
-        # Closing instruction at the bottom of the box
-        close_text = FONT.render("Click anywhere to close", True, (200, 200, 200))
-        close_rect = close_text.get_rect(center=(WINDOW_WIDTH//2, box_y + box_height - 36))
-        self.screen.blit(close_text, close_rect)
-
-    def toggle_help(self):
-        """Toggle the help overlay"""
-        self.showing_help = not self.showing_help
-
-    def handle_ai_turn(self, char: Character):
-        """Handle AI-controlled party member's turn"""
-        if not char.is_alive():
-            return
-        
-        self.add_message(f"\n{char.name}'s turn!")
-        
-        # Set up AI turn state
-        self.ai_current_char = char
-        self.ai_actions_remaining = 3
-        self.ai_action_queue = []
-        
-        # Start the first AI action
-        self.perform_next_ai_action()
-
-    def perform_next_ai_action(self):
-        """Perform the next AI action with appropriate delay"""
-        if not self.ai_current_char or not self.ai_current_char.is_alive() or self.ai_actions_remaining <= 0:
-            # AI turn is complete, move to next turn
-            self.ai_current_char = None
-            self.ai_actions_remaining = 0
-            self.next_turn()
-            return
-        
-        char = self.ai_current_char
-        
-        def get_unoccupied_moves(character, target_pos):
-            all_moves = character.get_valid_moves(self)
-            unoccupied = []
-            for pos in all_moves:
-                occupied = False
-                for other in self.get_all_characters():
-                    if other != character and other.position == pos and other.is_alive():
-                        occupied = True
-                        break
-                if not occupied:
-                    unoccupied.append(pos)
-            if unoccupied:
-                return sorted(unoccupied, key=lambda p: p.distance_to(target_pos))
-            return []
-        
-        def check_for_overlap():
-            chars = [c for c in self.get_all_characters() if c.is_alive()]
-            for i in range(len(chars)):
-                for j in range(i+1, len(chars)):
-                    if chars[i].position == chars[j].position:
-                        pass  # Overlap detected but no debug message
-        
-        action_performed = False
-        
-        if isinstance(char, Fighter):
-            targets = [(enemy, char.position.distance_to(enemy.position))
-                      for enemy in self.current_enemies if enemy.is_alive()]
-            if targets:
-                target, distance = min(targets, key=lambda x: x[1])
-                if distance <= 1:
-                    if self.ai_actions_remaining >= 2:
-                        used, _ = char.power_attack(target, self)
-                        self.ai_actions_remaining -= used
-                        action_performed = True
-                    else:
-                        used, _ = char.attack(target, self, dice=(1, 10))
-                        self.ai_actions_remaining -= used
-                        action_performed = True
-                else:
-                    moves = get_unoccupied_moves(char, target.position)
-                    if moves:
-                        best_move = moves[0]
-                        if char.move_to(best_move, self):
-                            check_for_overlap()
-                            self.ai_actions_remaining -= 1
-                            action_performed = True
-        
-        elif isinstance(char, Rogue):
-            targets = [(enemy, char.position.distance_to(enemy.position))
-                      for enemy in self.current_enemies if enemy.is_alive()]
-            if targets:
-                target, distance = min(targets, key=lambda x: x[1])
-                if distance <= 1:
-                    if char.is_flanking(target, self):
-                        used, _ = char.strike(target, self)
-                        self.ai_actions_remaining -= used
-                        action_performed = True
-                    elif self.ai_actions_remaining >= 2:
-                        used, _ = char.twin_feint(target, self)
-                        self.ai_actions_remaining -= used
-                        action_performed = True
-                    else:
-                        used, _ = char.strike(target, self)
-                        self.ai_actions_remaining -= used
-                        action_performed = True
-                else:
-                    moves = get_unoccupied_moves(char, target.position)
-                    if moves:
-                        best_move = None
-                        for move in moves:
-                            original_pos = char.position
-                            char.position = move
-                            if char.is_flanking(target, self):
-                                best_move = move
-                                char.position = original_pos
-                                break
-                            char.position = original_pos
-                        if not best_move:
-                            best_move = moves[0]
-                        if char.move_to(best_move, self):
-                            check_for_overlap()
-                            self.ai_actions_remaining -= 1
-                            action_performed = True
-        
-        elif isinstance(char, Cleric):
-            allies_needing_heal = [(ally, ally.max_hp - ally.hp) 
-                                 for ally in self.party 
-                                 if ally != char and ally.is_alive() and ally.hp < ally.max_hp]
-            if allies_needing_heal:
-                allies_needing_heal.sort(key=lambda x: x[1], reverse=True)
-                target_ally, missing_hp = allies_needing_heal[0]
-                distance = char.position.distance_to(target_ally.position)
-                if distance <= char.LESSER_HEAL_RANGE:
-                    used, _ = char.lesser_heal(target_ally, self, 1)
-                    self.ai_actions_remaining -= used
-                    action_performed = True
-                elif distance <= char.LESSER_HEAL_UP_RANGE:
-                    allies_in_range = sum(1 for ally, _ in allies_needing_heal 
-                                       if char.position.distance_to(ally.position) <= char.LESSER_HEAL_UP_RANGE)
-                    if allies_in_range >= 2 and self.ai_actions_remaining >= 3:
-                        used, _ = char.lesser_heal(target_ally, self, 3)
-                        self.ai_actions_remaining -= used
-                        action_performed = True
-                    elif self.ai_actions_remaining >= 2:
-                        used, _ = char.lesser_heal(target_ally, self, 2)
-                        self.ai_actions_remaining -= used
-                        action_performed = True
-                    else:
-                        moves = get_unoccupied_moves(char, target_ally.position)
-                        if moves:
-                            best_move = moves[0]
-                            if char.move_to(best_move, self):
-                                check_for_overlap()
-                                self.ai_actions_remaining -= 1
-                                action_performed = True
-                else:
-                    moves = get_unoccupied_moves(char, target_ally.position)
-                    if moves:
-                        best_move = moves[0]
-                        if char.move_to(best_move, self):
-                            check_for_overlap()
-                            self.ai_actions_remaining -= 1
-                            action_performed = True
-            else:
-                targets = [(enemy, char.position.distance_to(enemy.position))
-                          for enemy in self.current_enemies if enemy.is_alive()]
-                if targets:
-                    target, distance = min(targets, key=lambda x: x[1])
-                    if distance <= 1:
-                        used, _ = char.attack(target, self, dice=(1, 6))
-                        self.ai_actions_remaining -= used
-                        action_performed = True
-                    else:
-                        moves = get_unoccupied_moves(char, target.position)
-                        if moves:
-                            best_move = moves[0]
-                            if char.move_to(best_move, self):
-                                check_for_overlap()
-                                self.ai_actions_remaining -= 1
-                                action_performed = True
-        
-        elif isinstance(char, Wizard):
-            targets = [(enemy, char.position.distance_to(enemy.position))
-                      for enemy in self.current_enemies if enemy.is_alive()]
-            if targets:
-                target, distance = min(targets, key=lambda x: x[1])
-                if distance <= char.MAGIC_MISSILE_RANGE:
-                    used, _ = char.magic_missile(target, self, self.ai_actions_remaining)
-                    self.ai_actions_remaining -= used
-                    action_performed = True
-                else:
-                    moves = get_unoccupied_moves(char, target.position)
-                    if moves:
-                        best_move = moves[0]
-                        if char.move_to(best_move, self):
-                            check_for_overlap()
-                            self.ai_actions_remaining -= 1
-                            action_performed = True
-        
-        # If an action was performed, set a delay before the next action
-        if action_performed:
-            self.action_delay = pygame.time.get_ticks() + 1500  # 1.5 second delay between AI actions
-            # Schedule the next AI action
-            self._schedule_next_ai_action = True
-        else:
-            # No valid action found, end turn
-            self.ai_current_char = None
-            self.ai_actions_remaining = 0
-            self.next_turn()
-
-    def draw_upgrade_help_overlay(self):
-        """Draw the upgrade help overlay with upgrade instructions"""
-        # Semi-transparent background
-        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
-        overlay.fill((0, 0, 0))
-        overlay.set_alpha(180)
-        self.screen.blit(overlay, (0, 0))
-
-        # Help content for upgrades
-        upgrade_sections = [
-            ("Upgrade System:", [
-                "After each wave, your party gets stronger!",
-                "Each character can choose one upgrade:",
-                "",
-                "• Accuracy: +1 to attack bonus (better chance to hit)",
-                "• Damage: +2 to damage dealt with all attacks",
-                "• Speed: +5 feet movement (1 extra square)",
-                "• Vitality: +8 maximum HP and heal to full",
-                "",
-                "Choose wisely based on your strategy!",
-                "Melee fighters benefit from Damage and Vitality.",
-                "Spellcasters might prefer Accuracy for reliable hits.",
-                "Speed helps with positioning and tactical movement."
-            ])
-        ]
-
-        # Box dimensions
-        box_width = min(700, WINDOW_WIDTH - 80)
-        box_height = min(500, WINDOW_HEIGHT - 80)
-        box_x = (WINDOW_WIDTH - box_width) // 2
-        box_y = (WINDOW_HEIGHT - box_height) // 2
-
-        # Draw help box
-        help_box = pygame.Rect(box_x, box_y, box_width, box_height)
-        pygame.draw.rect(self.screen, (40, 40, 40), help_box)
-        pygame.draw.rect(self.screen, TITLE_COLOR, help_box, 3)
-
-        # Title
-        title = LARGE_TITLE_FONT.render("Upgrade Instructions", True, TITLE_COLOR)
-        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, box_y + 40))
-        self.screen.blit(title, title_rect)
-
-        # Content
-        y = box_y + 80
-        for section_title, items in upgrade_sections:
-            # Section header
-            header = TITLE_FONT.render(section_title, True, TITLE_COLOR)
-            self.screen.blit(header, (box_x + 20, y))
-            y += 35
-
-            # Section items
-            for item in items:
-                if item == "":
-                    y += 15
-                    continue
-                    
-                color = TEXT_COLOR
-                if item.startswith("•"):
-                    color = (200, 200, 255)
-                    
-                text = FONT.render(item, True, color)
-                self.screen.blit(text, (box_x + 30, y))
-                y += 25
-
-        # Close instruction
-        close_text = FONT.render("Click anywhere to close", True, (150, 150, 150))
-        close_rect = close_text.get_rect(center=(WINDOW_WIDTH//2, box_y + box_height - 30))
-        self.screen.blit(close_text, close_rect)
 
 if __name__ == "__main__":
     game = Game()
