@@ -3060,13 +3060,12 @@ class Game:
 
             # Section items
             for item in items:
-                if item == "":  # Empty line for spacing
+                if item == "":
                     y += 15
                     continue
                     
                 color = TEXT_COLOR
                 if item.startswith("•"):
-                    # Bullet points in a different color
                     color = (200, 200, 255)
                     
                 text = FONT.render(item, True, color)
