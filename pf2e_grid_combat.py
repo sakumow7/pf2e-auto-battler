@@ -2461,6 +2461,28 @@ class Game:
         while running:
             current_time = pygame.time.get_ticks()
             
+            # Always process pygame events first to keep window responsive
+            try:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        running = False
+                        self.quit_game()
+                    # Only process other events if not during delays or overlays
+                    elif not self.victory_overlay_active and self.action_delay <= current_time:
+                        if event.type == pygame.MOUSEBUTTONDOWN:
+                            if event.button in (4, 5): 
+                                mouse_pos = pygame.mouse.get_pos()
+                                message_area = pygame.Rect(20, WINDOW_HEIGHT - 300, WINDOW_WIDTH - 40, 200)
+                                if message_area.collidepoint(mouse_pos):
+                                    self.handle_scroll(event)
+                            elif event.button == 1: 
+                                self.handle_click(event.pos)
+                            elif event.button == 3: 
+                                self.handle_click(event.pos, right_click=True)
+            except Exception as e:
+                print(f"Error handling event: {e}")
+                continue
+            
             # Handle victory overlay timing
             if self.victory_overlay_active:
                 if current_time - self.victory_overlay_start >= self.victory_overlay_duration:
@@ -2470,14 +2492,14 @@ class Game:
                         self.end_battle(victory=True)
                     else:  # Wave 1 or 2 completed
                         self.start_upgrades()
-                # During victory overlay, skip all other input handling
+                # During victory overlay, skip game logic but continue to draw
                 self.update_effects()
                 self.draw()
                 self.clock.tick(60)
                 continue
             
+            # Handle action delays - skip game logic but continue to draw
             if self.action_delay > current_time:
-                # Update and draw effects even during delay
                 self.update_effects()
                 self.draw()
                 self.clock.tick(60)
@@ -2487,37 +2509,26 @@ class Game:
             if hasattr(self, '_schedule_next_ai_action') and self._schedule_next_ai_action:
                 self._schedule_next_ai_action = False
                 self.perform_next_ai_action()
+                # Continue to draw after scheduling AI action
+                self.update_effects()
+                self.draw()
+                self.clock.tick(60)
                 continue
             
             # Check if we need to perform the next enemy action after delay
             if hasattr(self, '_schedule_next_enemy_action') and self._schedule_next_enemy_action:
                 self._schedule_next_enemy_action = False
                 self.perform_next_enemy_action()
+                # Continue to draw after scheduling enemy action
+                self.update_effects()
+                self.draw()
+                self.clock.tick(60)
                 continue
             
             # If turn should end after delay, do it now
             if hasattr(self, '_end_turn_after_delay') and self._end_turn_after_delay:
                 self._end_turn_after_delay = False
                 self.next_turn()
-            
-            try:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        running = False
-                        self.quit_game()
-                    elif event.type == pygame.MOUSEBUTTONDOWN:
-                        if event.button in (4, 5): 
-                            mouse_pos = pygame.mouse.get_pos()
-                            message_area = pygame.Rect(20, WINDOW_HEIGHT - 300, WINDOW_WIDTH - 40, 200)
-                            if message_area.collidepoint(mouse_pos):
-                                self.handle_scroll(event)
-                        elif event.button == 1: 
-                            self.handle_click(event.pos)
-                        elif event.button == 3: 
-                            self.handle_click(event.pos, right_click=True)
-            except Exception as e:
-                print(f"Error handling event: {e}")
-                continue
             
             # Update effects
             self.update_effects()
