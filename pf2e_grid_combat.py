@@ -1,69 +1,58 @@
-"""
-This module initializes the core constants, colors, UI settings, and resource paths
-for a grid-based RPG-style game using Pygame. It includes display settings, grid layout,
-color schemes for characters and effects, animation configurations, and UI font styles.
-"""
 import pygame
 import sys
 import random
 import os
 import math
-import logging
-from datetime import datetime
 from typing import List, Tuple, Dict, Optional, Union
 
-# Initialize Pygame modules
+# Initialize Pygame
 pygame.init()
 pygame.font.init()
 
-# Get the display information of the current monitor to set the window size dynamically
+# Get the display info to set window size
 display_info = pygame.display.Info()
 SCREEN_WIDTH = display_info.current_w
 SCREEN_HEIGHT = display_info.current_h
 
-# Set the initial window size to 95% of screen dimensions
+# Set window size to 80% of screen size
 WINDOW_WIDTH = int(SCREEN_WIDTH * 0.95)
 WINDOW_HEIGHT = int(SCREEN_HEIGHT * 0.95)
 
-# Grid dimensions (number of cells) Define the number of columns and rows for the game grid
+# Grid dimensions (number of cells)
 GRID_COLS = 16
 GRID_ROWS = 8
 
-# Calculate grid size based on window dimensions and desired grid layout, that fits best within the current window size,
+# Calculate grid size based on window dimensions and desired grid layout
 # We subtract 100 from height to account for UI elements (50px top bar + 50px bottom margin)
 GRID_SIZE = min((WINDOW_WIDTH) // GRID_COLS, (WINDOW_HEIGHT - 100) // GRID_ROWS)
 
-# Recalculate window size to fit grid exactly, adjust the final window size to perfectly fit the grid layout
+# Recalculate window size to fit grid exactly
 WINDOW_WIDTH = GRID_COLS * GRID_SIZE
-WINDOW_HEIGHT = (GRID_ROWS * GRID_SIZE) + 100  # Add 100 for UI elements , add space for top/bottom UI
+WINDOW_HEIGHT = (GRID_ROWS * GRID_SIZE) + 100  # Add 100 for UI elements
 
-# Add near the top, after GRID_SIZE and before colors, 
-# Position from the top where the grid starts (to leave room for UI) 
+# Add near the top, after GRID_SIZE and before colors
 GRID_TOP = 50  # Space at the top for turn indicator, etc.
-# ---------- COLOR DEFINITIONS ----------
-# General UI colors
+
+# Colors
 BACKGROUND_COLOR = (40, 40, 40)
 GRID_COLOR = (60, 60, 60)
 GRID_HIGHLIGHT = (80, 80, 80)
 TEXT_COLOR = (255, 255, 255)
 BUTTON_COLOR = (100, 100, 100)
 BUTTON_HOVER_COLOR = (150, 150, 150)
-TITLE_COLOR = (255, 200, 100)  # Gold for headers/titles
-OVERLAY_COLOR = (0, 0, 0, 180)   # Semi-transparent black for overlays
+TITLE_COLOR = (255, 200, 100)  # Golden color for titles
+OVERLAY_COLOR = (0, 0, 0, 180)  # Semi-transparent black
 
-# Character color coding (for rendering or debugging purposes)
+# Character colors
 FIGHTER_COLOR = (200, 50, 50)  # Red
 ROGUE_COLOR = (50, 200, 50)    # Green
 WIZARD_COLOR = (50, 50, 200)   # Blue
 CLERIC_COLOR = (200, 200, 50)  # Yellow
 ENEMY_COLOR = (200, 50, 200)   # Purple
 
-# ---------- EFFECT COLORS & TIMING ----------
-
-# Duration and delay settings for special visual effects
+# Special Effects Constants
 EFFECT_DURATION = 60  # frames (1 second at 60 FPS)
-EFFECT_DELAY = 30  # frames (0.5 seconds delay at 60 FPS)
-# Colors for different types of combat effects or spells
+EFFECT_DELAY = 30  # frames (0.5 seconds at 60 FPS)
 MAGIC_MISSILE_COLOR = (100, 100, 255)  # Light blue
 HEAL_COLOR = (100, 255, 100)  # Light green
 SHIELD_COLOR = (200, 200, 255)  # Light blue
@@ -75,7 +64,7 @@ MISS_COLOR = (150, 150, 150)  # Gray
 SPIRIT_LINK_COLOR = (255, 200, 100)  # Golden
 SANCTUARY_COLOR = (200, 255, 200)  # Light green
 
-# ---------- ANIMATION SETTINGS (types)----------
+# Animation types
 ANIMATIONS = {
     'strike': {'color': STRIKE_COLOR, 'duration': EFFECT_DURATION},
     'power_attack': {'color': POWER_ATTACK_COLOR, 'duration': EFFECT_DURATION * 1.5},
@@ -89,16 +78,14 @@ ANIMATIONS = {
     'buff': {'color': SANCTUARY_COLOR, 'duration': EFFECT_DURATION}
 }
 
- # ---------- UI SETTINGS (Constants)---------- 
-# Button configuration
+# UI Constants
 BUTTON_HEIGHT = 50
 BUTTON_MARGIN = 15
-# Font settings for various UI elements
 FONT_SIZE = 20
 FONT = pygame.font.SysFont('Arial', FONT_SIZE)
 TITLE_FONT = pygame.font.SysFont('Arial', 32)
 LARGE_TITLE_FONT = pygame.font.SysFont('Arial', 48)
-# ---------- IMAGE RESOURCES ----------
+
 # Image paths for character sprites
 IMAGE_PATHS = {
     'fighter': 'images/fighter.webp',
@@ -132,19 +119,6 @@ class Effect:
                  effect_type: str = "basic",
                  damage: Optional[int] = None,
                  hit_type: Optional[str] = None):
-        """
-        Initializes a new effect animation instance.
-
-        Args:
-            start_pos: Starting position as a GridPosition or pixel tuple.
-            end_pos: Ending position as a GridPosition or pixel tuple.
-            color: RGB color for the effect.
-            duration: Total number of frames for the effect animation.
-            effect_type: A string identifier for the type of effect.
-            damage: Optional integer value for damage display.
-            hit_type: Optional string to denote the hit type.
-        """
-                     
         # Convert grid positions to pixel coordinates
         if isinstance(start_pos, GridPosition):
             self.start_pos = (start_pos.x * GRID_SIZE, start_pos.y * GRID_SIZE)
@@ -163,35 +137,23 @@ class Effect:
         self.damage = damage
         self.hit_type = hit_type
         
-        # Compute trajectory deltas
+        # Calculate trajectory
         self.dx = self.end_pos[0] - self.start_pos[0]
         self.dy = self.end_pos[1] - self.start_pos[1]
         
     def update(self) -> bool:
-                """
-        Advances the animation by one frame.
-
-        Returns:
-            bool: True if the effect is still active; False if it's done.
-        """
+        """Update effect animation. Returns True if effect is still active."""
         self.current_frame += 1
         return self.current_frame < self.duration
         
     def draw(self, surface: pygame.Surface):
-                """
-        Draws the current frame of the effect to the given surface.
-
-        Args:
-            surface (pygame.Surface): The surface to draw the effect on.
-        """
-        # Do not draw if the effect is still in its delay phase
-
+        # Don't draw during delay period
         if self.current_frame < 0:
             return
-         # Calculate progress as a float between 0 and 1    
+            
         progress = self.current_frame / self.duration
         
-        # Draw the main effect animation, Choose the correct effect drawing method based on effect type
+        # Draw the main effect animation
         if self.effect_type == "magic_missile":
             self._draw_magic_missile(surface, progress)
         elif self.effect_type == "heal":
@@ -218,24 +180,16 @@ class Effect:
             self._draw_damage_and_hit(surface, progress)
             
     def _draw_damage_and_hit(self, surface: pygame.Surface, progress: float):
-            """
-    Draws damage numbers and hit/miss/critical text overlay at the target location.
-
-    Args:
-        surface (pygame.Surface): The surface to draw the effect on.
-        progress (float): A float between 0 and 1 indicating how far along the effect is.
-    """
-    # Calculate central position slightly above the target cell
+        """Draw damage numbers and hit/miss overlay"""
+        # Calculate position for damage numbers (slightly above target)
         x = self.end_pos[0] + GRID_SIZE//2
         y = self.end_pos[1] + GRID_SIZE//2 - 30  # Start above target
         
-    # Draw a hit/miss/critical text overlay if available
+        # Draw hit/miss overlay
         if self.hit_type:
             overlay_surface = pygame.Surface((GRID_SIZE * 2, GRID_SIZE * 2), pygame.SRCALPHA)
             alpha = int(255 * (1 - progress))
             
-            # Determine overlay color and text based on hit type
-
             if self.hit_type == "hit":
                 color = (0, 255, 0, alpha)  # Green for hit
                 text = "HIT!"
@@ -246,19 +200,19 @@ class Effect:
                 color = (255, 215, 0, alpha)  # Gold for critical
                 text = "CRITICAL!"
             
-            # Render the text and center it
+            # Draw text
             font = pygame.font.SysFont('Arial', 24, bold=True)
             text_surf = font.render(text, True, color)
             text_rect = text_surf.get_rect(center=(GRID_SIZE, GRID_SIZE))
             overlay_surface.blit(text_surf, text_rect)
             
-            # Display overlay above the target
+            # Draw the overlay
             surface.blit(overlay_surface, (x - GRID_SIZE, y - GRID_SIZE + 50))
         
-        # Draw numeric damage values with bounce animation
+        # Draw damage numbers
         if self.damage is not None:
             # Calculate y position with a slight bounce effect
-            bounce = math.sin(progress * math.pi) * 20 # Sinusoidal vertical movement
+            bounce = math.sin(progress * math.pi) * 20
             damage_y = y - bounce
             
             # Create damage text surface
@@ -275,18 +229,11 @@ class Effect:
             surface.blit(text_surf, text_rect)
         
     def _draw_magic_missile(self, surface, progress):
-            """
-    Draw multiple magic missile particles, animation that travels from start to end in glowing streaks.
-
-    Args:
-        surface (pygame.Surface): The surface to draw on.
-        progress (float): A float from 0 to 1 indicating animation progress.
-    """
+        # Draw multiple magic missile particles
         current_x = self.start_pos[0] + self.dx * progress
         current_y = self.start_pos[1] + self.dy * progress
         
-        # Render trailing particles to simulate motion blur (glowing trail)
- 
+        # Draw a glowing trail
         for i in range(5):  # 5 particles
             trail_progress = max(0, progress - i * 0.15)
             trail_x = self.start_pos[0] + self.dx * trail_progress
@@ -295,25 +242,19 @@ class Effect:
             size = max(4, 12 - i * 2)
             alpha = max(0, 255 - i * 40)
             
-            # Draw outer glow circle
+            # Draw outer glow
             glow_size = size * 2
             glow_surface = pygame.Surface((glow_size * 2, glow_size * 2), pygame.SRCALPHA)
             pygame.draw.circle(glow_surface, (*self.color, alpha // 3), (glow_size, glow_size), glow_size)
             surface.blit(glow_surface, (trail_x - glow_size + GRID_SIZE//2, trail_y - glow_size + GRID_SIZE//2))
             
-            # Draw core missile particle
+            # Draw core particle
             particle_surface = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
             pygame.draw.circle(particle_surface, (*self.color, alpha), (size, size), size)
             surface.blit(particle_surface, (trail_x - size + GRID_SIZE//2, trail_y - size + GRID_SIZE//2))
             
     def _draw_strike(self, surface, progress):
-            """
-    Draws a melee strike animation with slashing lines.
-
-    Args:
-        surface (pygame.Surface): The surface to draw on.
-        progress (float): Animation progress from 0 to 1.
-    """
+        """Draw a basic strike animation"""
         start_x = self.start_pos[0] + GRID_SIZE//2
         start_y = self.start_pos[1] + GRID_SIZE//2
         end_x = self.end_pos[0] + GRID_SIZE//2
@@ -323,7 +264,7 @@ class Effect:
         slash_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw multiple slash lines with varying angles (motion and variation)
+        # Draw multiple slash lines with varying angles
         for i in range(3):
             p = max(0, min(1, progress * 3 - i * 0.3))
             if 0 < p < 1:
@@ -336,16 +277,10 @@ class Effect:
                                (current_x - 25, current_y + offset),
                                (current_x + 25, current_y - offset), 4)
         
-        surface.blit(slash_surface, (0, 50))  # Offset by 50 to account for turn indicator (UI bar)
+        surface.blit(slash_surface, (0, 50))  # Offset by 50 to account for turn indicator
         
     def _draw_power_attack(self, surface, progress):
-           """
-    Draws a power attack animation with heavier and more dramatic slashes.
-
-    Args:
-        surface (pygame.Surface): The surface to draw on.
-        progress (float): Animation progress from 0 to 1.
-    """
+        """Draw a power attack animation with multiple heavy strikes"""
         start_x = self.start_pos[0] + GRID_SIZE//2
         start_y = self.start_pos[1] + GRID_SIZE//2
         end_x = self.end_pos[0] + GRID_SIZE//2
@@ -355,7 +290,7 @@ class Effect:
         effect_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw multiple powerful slashes (with impact burst at the end)
+        # Draw multiple powerful slashes
         for i in range(4):
             p = max(0, min(1, progress * 4 - i * 0.25))
             if 0 < p < 1:
@@ -516,27 +451,49 @@ class Effect:
 
     def _draw_link(self, surface, progress):
         """Draw the spirit link animation"""
-        center_x = self.start_pos[0] + GRID_SIZE//2
-        center_y = self.start_pos[1] + GRID_SIZE//2
+        # Calculate center points of both characters
+        start_center_x = self.start_pos[0] + GRID_SIZE//2
+        start_center_y = self.start_pos[1] + GRID_SIZE//2
+        end_center_x = self.end_pos[0] + GRID_SIZE//2
+        end_center_y = self.end_pos[1] + GRID_SIZE//2
         
-        # Create link effect
-        effect_surface = pygame.Surface((GRID_SIZE * 4, GRID_SIZE * 4), pygame.SRCALPHA)
-        alpha = int(255 * (1 - progress))
+        # Create a pulsing alpha effect
+        pulse = abs(math.sin(pygame.time.get_ticks() / 200))
+        alpha = int(150 + 105 * pulse * (1 - progress))
         
-        # Draw connecting lines
-        for i in range(4):
-            p = max(0, min(1, progress * 4 - i * 0.25))
-            if 0 < p < 1:
-                current_x = self.start_pos[0] + (self.end_pos[0] - self.start_pos[0]) * p
-                current_y = self.start_pos[1] + (self.end_pos[1] - self.start_pos[1]) * p
-                
-                # Draw line with varying thickness
-                line_width = int(GRID_SIZE * (1 - p * 0.5))
-                pygame.draw.line(effect_surface, (*self.color, alpha),
-                               (self.start_pos[0] + GRID_SIZE//2, self.start_pos[1] + GRID_SIZE//2),
-                               (current_x, current_y), line_width)
+        # Draw the main connecting line
+        line_color = (*self.color, alpha)
+        line_width = max(1, int(6 * (1 - progress * 0.5)))
         
-        surface.blit(effect_surface, (center_x - GRID_SIZE * 2, center_y - GRID_SIZE * 2 + 50))
+        # Create a surface for the line with alpha
+        line_surface = pygame.Surface((abs(end_center_x - start_center_x) + line_width * 2, 
+                                     abs(end_center_y - start_center_y) + line_width * 2), pygame.SRCALPHA)
+        
+        # Calculate relative positions on the line surface
+        line_start_x = line_width if start_center_x < end_center_x else abs(end_center_x - start_center_x) + line_width
+        line_start_y = line_width if start_center_y < end_center_y else abs(end_center_y - start_center_y) + line_width
+        line_end_x = line_width if end_center_x < start_center_x else abs(end_center_x - start_center_x) + line_width
+        line_end_y = line_width if end_center_y < start_center_y else abs(end_center_y - start_center_y) + line_width
+        
+        # Draw the connecting line
+        pygame.draw.line(line_surface, line_color, 
+                        (line_start_x, line_start_y), (line_end_x, line_end_y), line_width)
+        
+        # Draw energy particles along the line
+        for i in range(3):
+            particle_progress = (progress * 3 + i * 0.33) % 1.0
+            particle_x = start_center_x + (end_center_x - start_center_x) * particle_progress
+            particle_y = start_center_y + (end_center_y - start_center_y) * particle_progress
+            particle_alpha = int(200 * (1 - progress))
+            
+            if particle_alpha > 0:
+                pygame.draw.circle(surface, (*self.color, particle_alpha), 
+                                 (int(particle_x), int(particle_y)), 3)
+        
+        # Position the line surface correctly
+        blit_x = min(start_center_x, end_center_x) - line_width
+        blit_y = min(start_center_y, end_center_y) - line_width
+        surface.blit(line_surface, (blit_x, blit_y))
 
     def _draw_buff(self, surface, progress):
         """Draw the sanctuary animation"""
@@ -562,7 +519,7 @@ class Effect:
             if len(points) > 1:
                 pygame.draw.lines(effect_surface, (*self.color, alpha), False, points, 3)
         
-        surface.blit(effect_surface, (center_x - GRID_SIZE * 2, center_y - GRID_SIZE * 2 + 50))
+        surface.blit(effect_surface, (center_x - GRID_SIZE * 2, center_y - GRID_SIZE * 2))
 
 class GridPosition:
     """
@@ -587,9 +544,9 @@ class GridPosition:
         """Calculate grid distance (in squares) to another position"""
         return max(abs(self.x - other.x), abs(self.y - other.y))
     
-    def get_pixel_pos(self, y_offset=0) -> Tuple[int, int]:
+    def get_pixel_pos(self) -> Tuple[int, int]:
         """Convert grid position to pixel coordinates"""
-        return (self.x * GRID_SIZE, self.y * GRID_SIZE + y_offset)
+        return (self.x * GRID_SIZE, self.y * GRID_SIZE)
 
 class Character:
     """
@@ -612,20 +569,20 @@ class Character:
         self.hp = hp
         self.base_ac = ac
         self.attack_bonus = attack_bonus
-        self.position = GridPosition(0, 0)
-        self.sprite = None
-        self.sprite_path = None
-        self.color = (200, 200, 200)
-        self.potions = 3
+        self.position = GridPosition(-1, -1)  # Off-grid initially
         self.alive = True
-        self.off_guard = False
-        self.is_enemy = False
-        self.sanctuary = False
-        self.speed = 25  # Speed in feet (5 feet per square)
-        self.selected_action = None
-        self.bonus_damage = 0  # New attribute for damage upgrade
-        self.conditions = {}  # Dictionary: condition name -> duration
+        self.color = (255, 255, 255)
+        self.sprite = None
+        self.speed = 25  # Default movement speed in feet
+        self.potions = 3  # Starting potions
+        self.bonus_damage = 0  # Bonus damage from upgrades
+        self.off_guard = False  # Condition for flanking/sneak attacks
+        self.is_enemy = False  # Flag to distinguish enemies from party members
         
+        # Conditions system
+        self.conditions = {}  # Dictionary to store active conditions and their durations
+        self.sanctuary_active = False  # Special flag for sanctuary protection
+    
     def load_sprite(self, sprite_path: str):
         """Load and scale character sprite"""
         try:
@@ -641,25 +598,7 @@ class Character:
         return self.hp > 0
     
     def get_ac(self) -> int:
-        return self.base_ac - 2 if self.off_guard else self.base_ac + 99 if self.sanctuary else self.base_ac
-    
-    def add_condition(self, name: str, duration: int):
-        self.conditions[name] = duration
-        if name == "Sanctuary":
-            self.sanctuary = True
-
-    def update_conditions(self, game: 'Game'):
-        expired = []
-        for condition, duration in self.conditions.items():
-            self.conditions[condition] -= 1
-            if self.conditions[condition] <= 0:
-                expired.append(condition)
-        
-        for condition in expired:
-            del self.conditions[condition]
-            if condition == "Sanctuary":
-                self.sanctuary = False
-                game.add_message(f"{self.name}'s Sanctuary fades.")
+        return self.base_ac - 2 if self.off_guard else self.base_ac
     
     def can_move_to(self, new_pos: GridPosition, game: 'Game') -> bool:
         """Check if character can move to the given position"""
@@ -706,6 +645,16 @@ class Character:
             return
         x = self.position.x * GRID_SIZE
         y = self.position.y * GRID_SIZE  # Remove GRID_TOP - it's added when grid_surface is blitted
+        
+        # Draw sanctuary protection indicator
+        if self.sanctuary_active:
+            pulse = abs(math.sin(pygame.time.get_ticks() / 300))  # Faster pulse for sanctuary
+            sanctuary_color = (255, 215, 0, int(80 + 100 * pulse))  # Golden color
+            sanctuary_surface = pygame.Surface((GRID_SIZE + 12, GRID_SIZE + 12), pygame.SRCALPHA)
+            pygame.draw.rect(sanctuary_surface, sanctuary_color, 
+                           (0, 0, GRID_SIZE + 12, GRID_SIZE + 12), 6, border_radius=8)
+            surface.blit(sanctuary_surface, (x - 6, y - 6))
+        
         # Draw active turn indicator if this is the current character
         if (game and not self.is_enemy and 
             game.state == "combat" and 
@@ -717,6 +666,30 @@ class Character:
             pygame.draw.rect(highlight_surface, highlight_color, 
                            (0, 0, GRID_SIZE + 8, GRID_SIZE + 8), 4, border_radius=4)
             surface.blit(highlight_surface, (x - 4, y - 4))
+        
+        # Draw targeting indicator if this character is currently selected as a target
+        if (game and game.selected_target == self):
+            pulse = abs(math.sin(pygame.time.get_ticks() / 300))  # Faster pulse for targeting
+            target_color = (255, 50, 50, int(120 + 135 * pulse))  # Red color with pulsing alpha
+            target_surface = pygame.Surface((GRID_SIZE + 16, GRID_SIZE + 16), pygame.SRCALPHA)
+            pygame.draw.rect(target_surface, target_color, 
+                           (0, 0, GRID_SIZE + 16, GRID_SIZE + 16), 8, border_radius=6)
+            surface.blit(target_surface, (x - 8, y - 8))
+            
+            # Add crosshair indicator in the center
+            crosshair_color = (255, 255, 255, int(200 + 55 * pulse))
+            center_x = x + GRID_SIZE//2
+            center_y = y + GRID_SIZE//2
+            crosshair_size = 12
+            
+            # Draw crosshair lines
+            pygame.draw.line(surface, crosshair_color[:3], 
+                           (center_x - crosshair_size, center_y), 
+                           (center_x + crosshair_size, center_y), 3)
+            pygame.draw.line(surface, crosshair_color[:3], 
+                           (center_x, center_y - crosshair_size), 
+                           (center_x, center_y + crosshair_size), 3)
+        
         # Draw character sprite or fallback shape
         if self.sprite:
             # Always scale sprite to fit grid square
@@ -782,7 +755,7 @@ class Character:
         
         return False
 
-    def apply_upgrade(self, upgrade_type: str):
+    def apply_upgrade(self, upgrade_type: str) -> str:
         """Apply an upgrade to the character"""
         if upgrade_type == "Accuracy":
             self.attack_bonus += 1
@@ -797,8 +770,9 @@ class Character:
             self.max_hp += 10
             self.hp += 10
             return f"{self.name} gains 10 max HP!"
-            
-    def heal_full(self):
+        return f"Unknown upgrade type: {upgrade_type}"
+
+    def heal_full(self) -> int:
         """Heal to full health"""
         old_hp = self.hp
         self.hp = self.max_hp
@@ -820,11 +794,32 @@ class Character:
             game.add_message(f"{target.name} is out of range!")
             return 0, False
             
+        # Check for Sanctuary protection (only affects enemies attacking party members)
+        if self.is_enemy and target.sanctuary_active:
+            will_save = random.randint(1, 20) + 2  # Enemies have +2 Will save
+            sanctuary_dc = 15
+            game.add_message(f"{self.name} must make a Will save to target {target.name} (Sanctuary)")
+            game.add_message(f"Will save: d20({will_save - 2}) + 2 = {will_save} vs DC {sanctuary_dc}")
+            
+            if will_save < sanctuary_dc:
+                game.add_message(f"{self.name} cannot bring themselves to attack {target.name}!")
+                # Remove sanctuary after it protects once
+                target.remove_condition("Sanctuary")
+                game.add_message(f"{target.name}'s Sanctuary fades after protecting them.")
+                # Add a miss effect to show the failed attack attempt
+                game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), MISS_COLOR, 
+                                     effect_type="miss", hit_type="miss"))
+                return 1, False  # Action is used but attack fails
+            else:
+                game.add_message(f"{self.name} overcomes the Sanctuary and attacks!")
+                # Remove sanctuary after a successful save
+                target.remove_condition("Sanctuary")
+                game.add_message(f"{target.name}'s Sanctuary is broken!")
+        
         # Check for flanking
         if self.is_flanking(target, game):
             target.off_guard = True
-            game.add_message(f"{target.name} is flanked and Off-Guard!")
-            
+        
         roll = random.randint(1, 20)
         total = roll + self.attack_bonus
         target_ac = target.get_ac()
@@ -938,6 +933,34 @@ class Character:
     def get_pixel_pos(self) -> Tuple[int, int]:
         """Get the pixel position of the character for animations"""
         return (self.position.x * GRID_SIZE, self.position.y * GRID_SIZE)
+
+    def add_condition(self, condition_name: str, duration: int = 1):
+        """Add a condition to the character"""
+        self.conditions[condition_name] = duration
+        if condition_name == "Sanctuary":
+            self.sanctuary_active = True
+    
+    def remove_condition(self, condition_name: str):
+        """Remove a condition from the character"""
+        if condition_name in self.conditions:
+            del self.conditions[condition_name]
+        if condition_name == "Sanctuary":
+            self.sanctuary_active = False
+    
+    def has_condition(self, condition_name: str) -> bool:
+        """Check if character has a specific condition"""
+        return condition_name in self.conditions
+    
+    def update_conditions(self):
+        """Update condition durations and remove expired ones"""
+        expired_conditions = []
+        for condition, duration in self.conditions.items():
+            self.conditions[condition] = duration - 1
+            if self.conditions[condition] <= 0:
+                expired_conditions.append(condition)
+        
+        for condition in expired_conditions:
+            self.remove_condition(condition)
 
 class Fighter(Character):
     """
@@ -1315,10 +1338,11 @@ class Cleric(Character):
             game.add_message(f"{target.name} is out of range for Sanctuary (range: 5 feet).")
             return 0, False
 
-        game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), SANCTUARY_COLOR, effect_type="buff"))
+        # No visual effect - just the persistent golden glow on the character
         game.add_message(f"{self.name} casts Sanctuary on {target.name}.")
+        game.add_message(f"{target.name} is protected by divine sanctuary - enemies must overcome their reluctance to attack!")
 
-        target.add_condition("Sanctuary", duration=1)  # Implement this in your condition/effect system
+        target.add_condition("Sanctuary", duration=3)  # Lasts 3 rounds
         return 1, True
         
 
@@ -1353,10 +1377,10 @@ class Cleric(Character):
             # 2-actions: ranged + bonus healing
             dice_roll = random.randint(1, 8)
             heal_amount = dice_roll + 8
-            game.add_message(f"Healing: d8 + 8 = [{dice_roll}] + 8 = {heal_amount + 8}")
+            game.add_message(f"Healing: d8 + 8 = [{dice_roll}] + 8 = {heal_amount}")
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
             old_hp = target.hp
-            target.hp = min(target.hp + heal_amount + 8, target.max_hp)
+            target.hp = min(target.hp + heal_amount, target.max_hp)
             healed = target.hp - old_hp
             game.add_message(f"{target.name} heals for {healed} HP. Now at {target.hp}/{target.max_hp} HP.")
 
@@ -1456,7 +1480,6 @@ class Game:
         
         self.clock = pygame.time.Clock()
         self.state = "intro"
-        self.selected_action = None
         self.selected_character = None
         self.selected_target = None
         self.highlighted_squares = []
@@ -1477,9 +1500,8 @@ class Game:
         self.wave_announcement_end = 0
         self.upgrade_selection = None
         self.available_upgrades = ["Accuracy", "Damage", "Speed", "Vitality"]
-        self.wave_summary = None
         self.effects = []  # List to store active effects
-        self.showing_help = False  # New state for help overlay
+        self.showing_help = False  # State for help overlay
         self.help_button_rect = None  # Store help button rectangle
         self.ai_action_queue = []  # Queue of AI actions to perform
         self.ai_current_char = None  # Current AI character taking actions
@@ -1586,6 +1608,10 @@ class Game:
 
     def handle_click(self, pos: Tuple[int, int], right_click: bool = False):
         """Handle mouse click events"""
+        # Don't handle any clicks during victory overlay
+        if self.victory_overlay_active:
+            return
+            
         # If help overlay is showing, clicking anywhere closes it
         if self.showing_help:
             self.showing_help = False
@@ -1635,7 +1661,7 @@ class Game:
         if self.state == "upgrade":
             if not right_click:  # Only handle left clicks
                 for button_rect, action_func in self.action_buttons:
-                    if button_rect.collidepoint(pos[0], pos[1]):
+                    if button_rect.collidepoint(pos):
                         action_func()
                         return
             return
@@ -1644,7 +1670,7 @@ class Game:
         if self.state == "wave_confirmation":
             if not right_click:  # Only handle left clicks
                 for button_rect, action_func in self.action_buttons:
-                    if button_rect.collidepoint(pos[0], pos[1]):
+                    if button_rect.collidepoint(pos):
                         action_func()
                         return
             return
@@ -1680,7 +1706,7 @@ class Game:
         
         # Handle grid clicks
         grid_x = pos[0] // GRID_SIZE
-        grid_y = (pos[1] - 50) // GRID_SIZE  # Adjust for turn indicator offset
+        grid_y = (pos[1] - GRID_TOP) // GRID_SIZE  # Adjust for turn indicator offset
         
         if not (0 <= grid_x < GRID_COLS and 0 <= grid_y < GRID_ROWS):
             return
@@ -1946,6 +1972,30 @@ class Game:
             if current_char != self.party[0]:  # If not the player's character
                 self.handle_ai_turn(current_char)
                 # Don't call next_turn() here - let the AI system handle turn progression
+        
+        # Update conditions for all characters at the end of each complete round
+        if self.current_member_idx == 0:  # Start of a new round
+            for char in self.party:
+                if char.is_alive():
+                    old_conditions = list(char.conditions.keys())
+                    char.update_conditions()
+                    new_conditions = list(char.conditions.keys())
+                    
+                    # Report expired conditions
+                    for condition in old_conditions:
+                        if condition not in new_conditions:
+                            self.add_message(f"{char.name}'s {condition} condition expires.")
+            
+            for enemy in self.current_enemies:
+                if enemy.is_alive():
+                    old_conditions = list(enemy.conditions.keys())
+                    enemy.update_conditions()
+                    new_conditions = list(enemy.conditions.keys())
+                    
+                    # Report expired conditions
+                    for condition in old_conditions:
+                        if condition not in new_conditions:
+                            self.add_message(f"{enemy.name}'s {condition} condition expires.")
         
         self.update_available_actions()
     
@@ -2476,13 +2526,17 @@ class Game:
         """Draw the introduction screen with improved spacing and centering"""
         self.screen.fill(BACKGROUND_COLOR)
         
-        title = LARGE_TITLE_FONT.render("Pathfinder 2E Grid Combat", True, TITLE_COLOR)
-        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 80))
+        title = LARGE_TITLE_FONT.render("PF2E Grid Combat Simulator", True, TITLE_COLOR)
+        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, 60))
         self.screen.blit(title, title_rect)
+        
+        subtitle = TITLE_FONT.render("By: Runtime Terrors", True, TEXT_COLOR)
+        subtitle_rect = subtitle.get_rect(center=(WINDOW_WIDTH//2, 100))
+        self.screen.blit(subtitle, subtitle_rect)
         
         # Intro content as (text, type) tuples for better spacing
         intro_content = [
-            ("Welcome to the PF2E Grid Combat Simulator!", "header"),
+            ("Welcome Pathfinders!", "header"),
             ("", "spacer"),
             ("You lead a party of three adventurers against waves of increasingly dangerous foes. Work together, use tactical positioning, and manage your actions wisely to survive!", "paragraph"),
             ("", "section_gap"),
@@ -2507,7 +2561,7 @@ class Game:
         # Centered text block
         block_width = min(700, WINDOW_WIDTH - 80)
         x_left = (WINDOW_WIDTH - block_width) // 2
-        y = 140
+        y = 160
         for text, typ in intro_content:
             if typ == "header":
                 surf = TITLE_FONT.render(text, True, TITLE_COLOR)
@@ -2543,7 +2597,6 @@ class Game:
                 y += 24
             elif typ == "spacer":
                 y += 12
-        
         self.draw_action_buttons() # This will draw the single "Start Game" button
         self.screen.blit(self.action_surface, (0, WINDOW_HEIGHT - 100))
 
