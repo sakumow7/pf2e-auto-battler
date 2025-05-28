@@ -1,3 +1,8 @@
+"""
+This module initializes the core constants, colors, UI settings, and resource paths
+for a grid-based RPG-style game using Pygame. It includes display settings, grid layout,
+color schemes for characters and effects, animation configurations, and UI font styles.
+"""
 import pygame
 import sys
 import random
@@ -7,54 +12,58 @@ import logging
 from datetime import datetime
 from typing import List, Tuple, Dict, Optional, Union
 
-# Initialize Pygame
+# Initialize Pygame modules
 pygame.init()
 pygame.font.init()
 
-# Get the display info to set window size
+# Get the display information of the current monitor to set the window size dynamically
 display_info = pygame.display.Info()
 SCREEN_WIDTH = display_info.current_w
 SCREEN_HEIGHT = display_info.current_h
 
-# Set window size to 80% of screen size
+# Set the initial window size to 95% of screen dimensions
 WINDOW_WIDTH = int(SCREEN_WIDTH * 0.95)
 WINDOW_HEIGHT = int(SCREEN_HEIGHT * 0.95)
 
-# Grid dimensions (number of cells)
+# Grid dimensions (number of cells) Define the number of columns and rows for the game grid
 GRID_COLS = 16
 GRID_ROWS = 8
 
-# Calculate grid size based on window dimensions and desired grid layout
+# Calculate grid size based on window dimensions and desired grid layout, that fits best within the current window size,
 # We subtract 100 from height to account for UI elements (50px top bar + 50px bottom margin)
 GRID_SIZE = min((WINDOW_WIDTH) // GRID_COLS, (WINDOW_HEIGHT - 100) // GRID_ROWS)
 
-# Recalculate window size to fit grid exactly
+# Recalculate window size to fit grid exactly, adjust the final window size to perfectly fit the grid layout
 WINDOW_WIDTH = GRID_COLS * GRID_SIZE
-WINDOW_HEIGHT = (GRID_ROWS * GRID_SIZE) + 100  # Add 100 for UI elements
+WINDOW_HEIGHT = (GRID_ROWS * GRID_SIZE) + 100  # Add 100 for UI elements , add space for top/bottom UI
 
-# Add near the top, after GRID_SIZE and before colors
+# Add near the top, after GRID_SIZE and before colors, 
+# Position from the top where the grid starts (to leave room for UI) 
 GRID_TOP = 50  # Space at the top for turn indicator, etc.
-
-# Colors
+# ---------- COLOR DEFINITIONS ----------
+# General UI colors
 BACKGROUND_COLOR = (40, 40, 40)
 GRID_COLOR = (60, 60, 60)
 GRID_HIGHLIGHT = (80, 80, 80)
 TEXT_COLOR = (255, 255, 255)
 BUTTON_COLOR = (100, 100, 100)
 BUTTON_HOVER_COLOR = (150, 150, 150)
-TITLE_COLOR = (255, 200, 100)  # Golden color for titles
-OVERLAY_COLOR = (0, 0, 0, 180)  # Semi-transparent black
+TITLE_COLOR = (255, 200, 100)  # Gold for headers/titles
+OVERLAY_COLOR = (0, 0, 0, 180)   # Semi-transparent black for overlays
 
-# Character colors
+# Character color coding (for rendering or debugging purposes)
 FIGHTER_COLOR = (200, 50, 50)  # Red
 ROGUE_COLOR = (50, 200, 50)    # Green
 WIZARD_COLOR = (50, 50, 200)   # Blue
 CLERIC_COLOR = (200, 200, 50)  # Yellow
 ENEMY_COLOR = (200, 50, 200)   # Purple
 
-# Special Effects Constants
+# ---------- EFFECT COLORS & TIMING ----------
+
+# Duration and delay settings for special visual effects
 EFFECT_DURATION = 60  # frames (1 second at 60 FPS)
-EFFECT_DELAY = 30  # frames (0.5 seconds at 60 FPS)
+EFFECT_DELAY = 30  # frames (0.5 seconds delay at 60 FPS)
+# Colors for different types of combat effects or spells
 MAGIC_MISSILE_COLOR = (100, 100, 255)  # Light blue
 HEAL_COLOR = (100, 255, 100)  # Light green
 SHIELD_COLOR = (200, 200, 255)  # Light blue
@@ -66,7 +75,7 @@ MISS_COLOR = (150, 150, 150)  # Gray
 SPIRIT_LINK_COLOR = (255, 200, 100)  # Golden
 SANCTUARY_COLOR = (200, 255, 200)  # Light green
 
-# Animation types
+# ---------- ANIMATION SETTINGS (types)----------
 ANIMATIONS = {
     'strike': {'color': STRIKE_COLOR, 'duration': EFFECT_DURATION},
     'power_attack': {'color': POWER_ATTACK_COLOR, 'duration': EFFECT_DURATION * 1.5},
@@ -80,14 +89,16 @@ ANIMATIONS = {
     'buff': {'color': SANCTUARY_COLOR, 'duration': EFFECT_DURATION}
 }
 
-# UI Constants
+ # ---------- UI SETTINGS (Constants)---------- 
+# Button configuration
 BUTTON_HEIGHT = 50
 BUTTON_MARGIN = 15
+# Font settings for various UI elements
 FONT_SIZE = 20
 FONT = pygame.font.SysFont('Arial', FONT_SIZE)
 TITLE_FONT = pygame.font.SysFont('Arial', 32)
 LARGE_TITLE_FONT = pygame.font.SysFont('Arial', 48)
-
+# ---------- IMAGE RESOURCES ----------
 # Image paths for character sprites
 IMAGE_PATHS = {
     'fighter': 'images/fighter.webp',
@@ -121,6 +132,19 @@ class Effect:
                  effect_type: str = "basic",
                  damage: Optional[int] = None,
                  hit_type: Optional[str] = None):
+        """
+        Initializes a new effect animation instance.
+
+        Args:
+            start_pos: Starting position as a GridPosition or pixel tuple.
+            end_pos: Ending position as a GridPosition or pixel tuple.
+            color: RGB color for the effect.
+            duration: Total number of frames for the effect animation.
+            effect_type: A string identifier for the type of effect.
+            damage: Optional integer value for damage display.
+            hit_type: Optional string to denote the hit type.
+        """
+                     
         # Convert grid positions to pixel coordinates
         if isinstance(start_pos, GridPosition):
             self.start_pos = (start_pos.x * GRID_SIZE, start_pos.y * GRID_SIZE)
@@ -139,23 +163,35 @@ class Effect:
         self.damage = damage
         self.hit_type = hit_type
         
-        # Calculate trajectory
+        # Compute trajectory deltas
         self.dx = self.end_pos[0] - self.start_pos[0]
         self.dy = self.end_pos[1] - self.start_pos[1]
         
     def update(self) -> bool:
-        """Update effect animation. Returns True if effect is still active."""
+                """
+        Advances the animation by one frame.
+
+        Returns:
+            bool: True if the effect is still active; False if it's done.
+        """
         self.current_frame += 1
         return self.current_frame < self.duration
         
     def draw(self, surface: pygame.Surface):
-        # Don't draw during delay period
+                """
+        Draws the current frame of the effect to the given surface.
+
+        Args:
+            surface (pygame.Surface): The surface to draw the effect on.
+        """
+        # Do not draw if the effect is still in its delay phase
+
         if self.current_frame < 0:
             return
-            
+         # Calculate progress as a float between 0 and 1    
         progress = self.current_frame / self.duration
         
-        # Draw the main effect animation
+        # Draw the main effect animation, Choose the correct effect drawing method based on effect type
         if self.effect_type == "magic_missile":
             self._draw_magic_missile(surface, progress)
         elif self.effect_type == "heal":
@@ -182,16 +218,24 @@ class Effect:
             self._draw_damage_and_hit(surface, progress)
             
     def _draw_damage_and_hit(self, surface: pygame.Surface, progress: float):
-        """Draw damage numbers and hit/miss overlay"""
-        # Calculate position for damage numbers (slightly above target)
+            """
+    Draws damage numbers and hit/miss/critical text overlay at the target location.
+
+    Args:
+        surface (pygame.Surface): The surface to draw the effect on.
+        progress (float): A float between 0 and 1 indicating how far along the effect is.
+    """
+    # Calculate central position slightly above the target cell
         x = self.end_pos[0] + GRID_SIZE//2
         y = self.end_pos[1] + GRID_SIZE//2 - 30  # Start above target
         
-        # Draw hit/miss overlay
+    # Draw a hit/miss/critical text overlay if available
         if self.hit_type:
             overlay_surface = pygame.Surface((GRID_SIZE * 2, GRID_SIZE * 2), pygame.SRCALPHA)
             alpha = int(255 * (1 - progress))
             
+            # Determine overlay color and text based on hit type
+
             if self.hit_type == "hit":
                 color = (0, 255, 0, alpha)  # Green for hit
                 text = "HIT!"
@@ -202,19 +246,19 @@ class Effect:
                 color = (255, 215, 0, alpha)  # Gold for critical
                 text = "CRITICAL!"
             
-            # Draw text
+            # Render the text and center it
             font = pygame.font.SysFont('Arial', 24, bold=True)
             text_surf = font.render(text, True, color)
             text_rect = text_surf.get_rect(center=(GRID_SIZE, GRID_SIZE))
             overlay_surface.blit(text_surf, text_rect)
             
-            # Draw the overlay
+            # Display overlay above the target
             surface.blit(overlay_surface, (x - GRID_SIZE, y - GRID_SIZE + 50))
         
-        # Draw damage numbers
+        # Draw numeric damage values with bounce animation
         if self.damage is not None:
             # Calculate y position with a slight bounce effect
-            bounce = math.sin(progress * math.pi) * 20
+            bounce = math.sin(progress * math.pi) * 20 # Sinusoidal vertical movement
             damage_y = y - bounce
             
             # Create damage text surface
@@ -231,11 +275,18 @@ class Effect:
             surface.blit(text_surf, text_rect)
         
     def _draw_magic_missile(self, surface, progress):
-        # Draw multiple magic missile particles
+            """
+    Draw multiple magic missile particles, animation that travels from start to end in glowing streaks.
+
+    Args:
+        surface (pygame.Surface): The surface to draw on.
+        progress (float): A float from 0 to 1 indicating animation progress.
+    """
         current_x = self.start_pos[0] + self.dx * progress
         current_y = self.start_pos[1] + self.dy * progress
         
-        # Draw a glowing trail
+        # Render trailing particles to simulate motion blur (glowing trail)
+ 
         for i in range(5):  # 5 particles
             trail_progress = max(0, progress - i * 0.15)
             trail_x = self.start_pos[0] + self.dx * trail_progress
@@ -244,19 +295,25 @@ class Effect:
             size = max(4, 12 - i * 2)
             alpha = max(0, 255 - i * 40)
             
-            # Draw outer glow
+            # Draw outer glow circle
             glow_size = size * 2
             glow_surface = pygame.Surface((glow_size * 2, glow_size * 2), pygame.SRCALPHA)
             pygame.draw.circle(glow_surface, (*self.color, alpha // 3), (glow_size, glow_size), glow_size)
             surface.blit(glow_surface, (trail_x - glow_size + GRID_SIZE//2, trail_y - glow_size + GRID_SIZE//2))
             
-            # Draw core particle
+            # Draw core missile particle
             particle_surface = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
             pygame.draw.circle(particle_surface, (*self.color, alpha), (size, size), size)
             surface.blit(particle_surface, (trail_x - size + GRID_SIZE//2, trail_y - size + GRID_SIZE//2))
             
     def _draw_strike(self, surface, progress):
-        """Draw a basic strike animation"""
+            """
+    Draws a melee strike animation with slashing lines.
+
+    Args:
+        surface (pygame.Surface): The surface to draw on.
+        progress (float): Animation progress from 0 to 1.
+    """
         start_x = self.start_pos[0] + GRID_SIZE//2
         start_y = self.start_pos[1] + GRID_SIZE//2
         end_x = self.end_pos[0] + GRID_SIZE//2
@@ -266,7 +323,7 @@ class Effect:
         slash_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw multiple slash lines with varying angles
+        # Draw multiple slash lines with varying angles (motion and variation)
         for i in range(3):
             p = max(0, min(1, progress * 3 - i * 0.3))
             if 0 < p < 1:
@@ -279,10 +336,16 @@ class Effect:
                                (current_x - 25, current_y + offset),
                                (current_x + 25, current_y - offset), 4)
         
-        surface.blit(slash_surface, (0, 50))  # Offset by 50 to account for turn indicator
+        surface.blit(slash_surface, (0, 50))  # Offset by 50 to account for turn indicator (UI bar)
         
     def _draw_power_attack(self, surface, progress):
-        """Draw a power attack animation with multiple heavy strikes"""
+           """
+    Draws a power attack animation with heavier and more dramatic slashes.
+
+    Args:
+        surface (pygame.Surface): The surface to draw on.
+        progress (float): Animation progress from 0 to 1.
+    """
         start_x = self.start_pos[0] + GRID_SIZE//2
         start_y = self.start_pos[1] + GRID_SIZE//2
         end_x = self.end_pos[0] + GRID_SIZE//2
@@ -292,7 +355,7 @@ class Effect:
         effect_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw multiple powerful slashes
+        # Draw multiple powerful slashes (with impact burst at the end)
         for i in range(4):
             p = max(0, min(1, progress * 4 - i * 0.25))
             if 0 < p < 1:
@@ -1290,10 +1353,10 @@ class Cleric(Character):
             # 2-actions: ranged + bonus healing
             dice_roll = random.randint(1, 8)
             heal_amount = dice_roll + 8
-            game.add_message(f"Healing: d8 + 8 = [{dice_roll}] + 8 = {heal_amount}")
+            game.add_message(f"Healing: d8 + 8 = [{dice_roll}] + 8 = {heal_amount + 8}")
             game.add_effect(Effect(self.get_pixel_pos(), target.get_pixel_pos(), HEAL_COLOR, effect_type="heal"))
             old_hp = target.hp
-            target.hp = min(target.hp + heal_amount, target.max_hp)
+            target.hp = min(target.hp + heal_amount + 8, target.max_hp)
             healed = target.hp - old_hp
             game.add_message(f"{target.name} heals for {healed} HP. Now at {target.hp}/{target.max_hp} HP.")
 
@@ -1427,6 +1490,16 @@ class Game:
         self.enemy_actions_remaining = 0  # Actions left for current enemy
         self._schedule_next_enemy_action = False  # Flag to schedule next enemy action after delay
         
+        # Victory overlay variables
+        self.victory_overlay_active = False
+        self.victory_overlay_start = 0
+        self.victory_overlay_duration = 3000  # 3 seconds
+        
+        # Upgrade help variables
+        self.first_time_upgrades = True
+        self.showing_upgrade_help = False
+        self.upgrade_help_button_rect = None
+        
         # Create surfaces
         self.grid_surface = pygame.Surface((GRID_COLS * GRID_SIZE, GRID_ROWS * GRID_SIZE))
         self.message_surface = pygame.Surface((WINDOW_WIDTH - 40, 200))
@@ -1518,9 +1591,20 @@ class Game:
             self.showing_help = False
             return
             
+        # If upgrade help overlay is showing, clicking anywhere closes it
+        if self.showing_upgrade_help:
+            self.showing_upgrade_help = False
+            return
+            
         # Check if help button was clicked
         if self.help_button_rect and self.help_button_rect.collidepoint(pos):
             self.showing_help = True
+            return
+            
+        # Check if upgrade help button was clicked (only in upgrade state)
+        if (self.state == "upgrade" and self.upgrade_help_button_rect and 
+            self.upgrade_help_button_rect.collidepoint(pos)):
+            self.showing_upgrade_help = True
             return
             
         # Don't handle clicks during action delay
@@ -2161,17 +2245,24 @@ class Game:
             for effect in self.effects:
                 effect.draw(self.screen)
 
-            # Draw wave announcement overlay if active
-            if self.state == "combat":
-                self.draw_wave_announcement()
+        # Draw wave announcement overlay
+        self.draw_wave_announcement()
+        
+        # Draw victory overlay if active
+        if self.victory_overlay_active:
+            self.draw_victory_overlay()
 
-        # Draw help button in all states except help overlay, intro, and class_select
-        if not self.showing_help and self.state not in ["intro", "class_select"]:
+        # Draw help button (always visible except on intro/victory/game_over screens)
+        if self.state not in ["intro", "victory", "game_over"]:
             self.draw_help_button()
+            if self.state == "upgrade":
+                self.draw_upgrade_help_button()
 
-        # Draw help overlay if active
+        # Draw help overlay if showing
         if self.showing_help:
             self.draw_help_overlay()
+        elif self.showing_upgrade_help:
+            self.draw_upgrade_help_overlay()
 
         pygame.display.flip()
 
@@ -2233,6 +2324,21 @@ class Game:
         running = True
         while running:
             current_time = pygame.time.get_ticks()
+            
+            # Handle victory overlay timing
+            if self.victory_overlay_active:
+                if current_time - self.victory_overlay_start >= self.victory_overlay_duration:
+                    self.victory_overlay_active = False
+                    # Proceed to next phase after victory overlay
+                    if self.wave_number == 3:  # Final wave completed
+                        self.end_battle(victory=True)
+                    else:  # Wave 1 or 2 completed
+                        self.start_upgrades()
+                # During victory overlay, skip all other input handling
+                self.update_effects()
+                self.draw()
+                self.clock.tick(60)
+                continue
             
             if self.action_delay > current_time:
                 # Update and draw effects even during delay
@@ -2465,6 +2571,28 @@ class Game:
         elif self.wave_announcement and pygame.time.get_ticks() >= self.wave_announcement_end:
             self.wave_announcement = None
 
+    def draw_victory_overlay(self):
+        """Draw the victory overlay when a wave is completed"""
+        # Add semi-transparent black background
+        overlay_bg = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+        overlay_bg.fill((0, 0, 0))
+        overlay_bg.set_alpha(180)
+        self.screen.blit(overlay_bg, (0, 0))
+        
+        # Draw the victory text with golden color
+        victory_text = "VICTORY!"
+        text = LARGE_TITLE_FONT.render(victory_text, True, (255, 215, 0))  # Gold color
+        text_rect = text.get_rect(center=(WINDOW_WIDTH//2, WINDOW_HEIGHT//2))
+        self.screen.blit(text, text_rect)
+        
+        # Add a subtle glow effect by drawing the text multiple times with slight offsets
+        for offset in [(-2, -2), (-2, 2), (2, -2), (2, 2)]:
+            glow_text = LARGE_TITLE_FONT.render(victory_text, True, (255, 255, 150))  # Lighter gold
+            glow_rect = text_rect.copy()
+            glow_rect.x += offset[0]
+            glow_rect.y += offset[1]
+            self.screen.blit(glow_text, glow_rect)
+
     def start_upgrades(self):
         """Start the upgrade selection process"""
         # Heal all party members to full
@@ -2475,6 +2603,12 @@ class Game:
         
         self.state = "upgrade"
         self.upgrade_selection = 0  # Start with first party member
+        
+        # Show upgrade instructions the first time
+        if self.first_time_upgrades:
+            self.showing_upgrade_help = True
+            self.first_time_upgrades = False
+        
         self.update_available_actions()
 
     def apply_upgrade(self, upgrade: str):
@@ -2497,13 +2631,29 @@ class Game:
         alive_enemies = [e for e in self.current_enemies if e.is_alive()]
         
         if not alive_enemies:
+            # Immediately stop all actions and show victory overlay
+            self.actions_left = 0
+            self.action_delay = 0
+            self._end_turn_after_delay = False
+            self._schedule_next_ai_action = False
+            self._schedule_next_enemy_action = False
+            
+            # Clear any pending actions or selections
+            self.pending_action = None
+            self.selected_target = None
+            self.valid_targets = []
+            
+            # Show victory overlay
+            self.victory_overlay_active = True
+            self.victory_overlay_start = pygame.time.get_ticks()
+            
             if self.wave_number == 3: # Just completed the final wave (Wyvern)
-                self.end_battle(victory=True)
+                # For final victory, we'll handle this in the victory overlay logic
+                pass
             elif self.wave_number < 3: # Completed wave 1 or 2
                 self.add_message("\nWave complete! Time to rest and upgrade!")
-                self.start_upgrades()
             else: # Should not be reached if logic is correct
-                self.end_battle()
+                pass
             return True
         return False
 
@@ -2658,6 +2808,22 @@ class Game:
         # Draw text
         text = FONT.render("How to Play", True, TEXT_COLOR)
         text_rect = text.get_rect(center=self.help_button_rect.center)
+        self.screen.blit(text, text_rect)
+
+    def draw_upgrade_help_button(self):
+        """Draw the upgrade help button next to the How to Play button"""
+        button_width = 140
+        button_height = 40
+        # Position it to the left of the How to Play button
+        self.upgrade_help_button_rect = pygame.Rect(WINDOW_WIDTH - button_width - 140, 10, button_width, button_height)
+        
+        # Draw button
+        pygame.draw.rect(self.screen, BUTTON_COLOR, self.upgrade_help_button_rect)
+        pygame.draw.rect(self.screen, TITLE_COLOR, self.upgrade_help_button_rect, 2)
+        
+        # Draw text
+        text = FONT.render("Upgrade Help", True, TEXT_COLOR)
+        text_rect = text.get_rect(center=self.upgrade_help_button_rect.center)
         self.screen.blit(text, text_rect)
 
     def draw_help_overlay(self):
@@ -2925,6 +3091,75 @@ class Game:
             self.ai_current_char = None
             self.ai_actions_remaining = 0
             self.next_turn()
+
+    def draw_upgrade_help_overlay(self):
+        """Draw the upgrade help overlay with upgrade instructions"""
+        # Semi-transparent background
+        overlay = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT))
+        overlay.fill((0, 0, 0))
+        overlay.set_alpha(180)
+        self.screen.blit(overlay, (0, 0))
+
+        # Help content for upgrades
+        upgrade_sections = [
+            ("Upgrade System:", [
+                "After each wave, your party gets stronger!",
+                "Each character can choose one upgrade:",
+                "",
+                "• Accuracy: +1 to attack bonus (better chance to hit)",
+                "• Damage: +2 to damage dealt with all attacks",
+                "• Speed: +5 feet movement (1 extra square)",
+                "• Vitality: +8 maximum HP and heal to full",
+                "",
+                "Choose wisely based on your strategy!",
+                "Melee fighters benefit from Damage and Vitality.",
+                "Spellcasters might prefer Accuracy for reliable hits.",
+                "Speed helps with positioning and tactical movement."
+            ])
+        ]
+
+        # Box dimensions
+        box_width = min(700, WINDOW_WIDTH - 80)
+        box_height = min(500, WINDOW_HEIGHT - 80)
+        box_x = (WINDOW_WIDTH - box_width) // 2
+        box_y = (WINDOW_HEIGHT - box_height) // 2
+
+        # Draw help box
+        help_box = pygame.Rect(box_x, box_y, box_width, box_height)
+        pygame.draw.rect(self.screen, (40, 40, 40), help_box)
+        pygame.draw.rect(self.screen, TITLE_COLOR, help_box, 3)
+
+        # Title
+        title = LARGE_TITLE_FONT.render("Upgrade Instructions", True, TITLE_COLOR)
+        title_rect = title.get_rect(center=(WINDOW_WIDTH//2, box_y + 40))
+        self.screen.blit(title, title_rect)
+
+        # Content
+        y = box_y + 80
+        for section_title, items in upgrade_sections:
+            # Section header
+            header = TITLE_FONT.render(section_title, True, TITLE_COLOR)
+            self.screen.blit(header, (box_x + 20, y))
+            y += 35
+
+            # Section items
+            for item in items:
+                if item == "":
+                    y += 15
+                    continue
+                    
+                color = TEXT_COLOR
+                if item.startswith("•"):
+                    color = (200, 200, 255)
+                    
+                text = FONT.render(item, True, color)
+                self.screen.blit(text, (box_x + 30, y))
+                y += 25
+
+        # Close instruction
+        close_text = FONT.render("Click anywhere to close", True, (150, 150, 150))
+        close_rect = close_text.get_rect(center=(WINDOW_WIDTH//2, box_y + box_height - 30))
+        self.screen.blit(close_text, close_rect)
 
 if __name__ == "__main__":
     game = Game()
