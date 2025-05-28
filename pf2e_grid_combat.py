@@ -1,3 +1,8 @@
+"""
+This module initializes the core constants, colors, UI settings, and resource paths
+for a grid-based RPG-style game using Pygame. It includes display settings, grid layout,
+color schemes for characters and effects, animation configurations, and UI font styles.
+"""
 import pygame
 import sys
 import random
@@ -7,54 +12,58 @@ import logging
 from datetime import datetime
 from typing import List, Tuple, Dict, Optional, Union
 
-# Initialize Pygame
+# Initialize Pygame modules
 pygame.init()
 pygame.font.init()
 
-# Get the display info to set window size
+# Get the display information of the current monitor to set the window size dynamically
 display_info = pygame.display.Info()
 SCREEN_WIDTH = display_info.current_w
 SCREEN_HEIGHT = display_info.current_h
 
-# Set window size to 80% of screen size
+# Set the initial window size to 95% of screen dimensions
 WINDOW_WIDTH = int(SCREEN_WIDTH * 0.95)
 WINDOW_HEIGHT = int(SCREEN_HEIGHT * 0.95)
 
-# Grid dimensions (number of cells)
+# Grid dimensions (number of cells) Define the number of columns and rows for the game grid
 GRID_COLS = 16
 GRID_ROWS = 8
 
-# Calculate grid size based on window dimensions and desired grid layout
+# Calculate grid size based on window dimensions and desired grid layout, that fits best within the current window size,
 # We subtract 100 from height to account for UI elements (50px top bar + 50px bottom margin)
 GRID_SIZE = min((WINDOW_WIDTH) // GRID_COLS, (WINDOW_HEIGHT - 100) // GRID_ROWS)
 
-# Recalculate window size to fit grid exactly
+# Recalculate window size to fit grid exactly, adjust the final window size to perfectly fit the grid layout
 WINDOW_WIDTH = GRID_COLS * GRID_SIZE
-WINDOW_HEIGHT = (GRID_ROWS * GRID_SIZE) + 100  # Add 100 for UI elements
+WINDOW_HEIGHT = (GRID_ROWS * GRID_SIZE) + 100  # Add 100 for UI elements , add space for top/bottom UI
 
-# Add near the top, after GRID_SIZE and before colors
+# Add near the top, after GRID_SIZE and before colors, 
+# Position from the top where the grid starts (to leave room for UI) 
 GRID_TOP = 50  # Space at the top for turn indicator, etc.
-
-# Colors
+# ---------- COLOR DEFINITIONS ----------
+# General UI colors
 BACKGROUND_COLOR = (40, 40, 40)
 GRID_COLOR = (60, 60, 60)
 GRID_HIGHLIGHT = (80, 80, 80)
 TEXT_COLOR = (255, 255, 255)
 BUTTON_COLOR = (100, 100, 100)
 BUTTON_HOVER_COLOR = (150, 150, 150)
-TITLE_COLOR = (255, 200, 100)  # Golden color for titles
-OVERLAY_COLOR = (0, 0, 0, 180)  # Semi-transparent black
+TITLE_COLOR = (255, 200, 100)  # Gold for headers/titles
+OVERLAY_COLOR = (0, 0, 0, 180)   # Semi-transparent black for overlays
 
-# Character colors
+# Character color coding (for rendering or debugging purposes)
 FIGHTER_COLOR = (200, 50, 50)  # Red
 ROGUE_COLOR = (50, 200, 50)    # Green
 WIZARD_COLOR = (50, 50, 200)   # Blue
 CLERIC_COLOR = (200, 200, 50)  # Yellow
 ENEMY_COLOR = (200, 50, 200)   # Purple
 
-# Special Effects Constants
+# ---------- EFFECT COLORS & TIMING ----------
+
+# Duration and delay settings for special visual effects
 EFFECT_DURATION = 60  # frames (1 second at 60 FPS)
-EFFECT_DELAY = 30  # frames (0.5 seconds at 60 FPS)
+EFFECT_DELAY = 30  # frames (0.5 seconds delay at 60 FPS)
+# Colors for different types of combat effects or spells
 MAGIC_MISSILE_COLOR = (100, 100, 255)  # Light blue
 HEAL_COLOR = (100, 255, 100)  # Light green
 SHIELD_COLOR = (200, 200, 255)  # Light blue
@@ -66,7 +75,7 @@ MISS_COLOR = (150, 150, 150)  # Gray
 SPIRIT_LINK_COLOR = (255, 200, 100)  # Golden
 SANCTUARY_COLOR = (200, 255, 200)  # Light green
 
-# Animation types
+# ---------- ANIMATION SETTINGS (types)----------
 ANIMATIONS = {
     'strike': {'color': STRIKE_COLOR, 'duration': EFFECT_DURATION},
     'power_attack': {'color': POWER_ATTACK_COLOR, 'duration': EFFECT_DURATION * 1.5},
@@ -80,14 +89,16 @@ ANIMATIONS = {
     'buff': {'color': SANCTUARY_COLOR, 'duration': EFFECT_DURATION}
 }
 
-# UI Constants
+ # ---------- UI SETTINGS (Constants)---------- 
+# Button configuration
 BUTTON_HEIGHT = 50
 BUTTON_MARGIN = 15
+# Font settings for various UI elements
 FONT_SIZE = 20
 FONT = pygame.font.SysFont('Arial', FONT_SIZE)
 TITLE_FONT = pygame.font.SysFont('Arial', 32)
 LARGE_TITLE_FONT = pygame.font.SysFont('Arial', 48)
-
+# ---------- IMAGE RESOURCES ----------
 # Image paths for character sprites
 IMAGE_PATHS = {
     'fighter': 'images/fighter.webp',
@@ -121,6 +132,19 @@ class Effect:
                  effect_type: str = "basic",
                  damage: Optional[int] = None,
                  hit_type: Optional[str] = None):
+        """
+        Initializes a new effect animation instance.
+
+        Args:
+            start_pos: Starting position as a GridPosition or pixel tuple.
+            end_pos: Ending position as a GridPosition or pixel tuple.
+            color: RGB color for the effect.
+            duration: Total number of frames for the effect animation.
+            effect_type: A string identifier for the type of effect.
+            damage: Optional integer value for damage display.
+            hit_type: Optional string to denote the hit type.
+        """
+                     
         # Convert grid positions to pixel coordinates
         if isinstance(start_pos, GridPosition):
             self.start_pos = (start_pos.x * GRID_SIZE, start_pos.y * GRID_SIZE)
@@ -139,23 +163,35 @@ class Effect:
         self.damage = damage
         self.hit_type = hit_type
         
-        # Calculate trajectory
+        # Compute trajectory deltas
         self.dx = self.end_pos[0] - self.start_pos[0]
         self.dy = self.end_pos[1] - self.start_pos[1]
         
     def update(self) -> bool:
-        """Update effect animation. Returns True if effect is still active."""
+                """
+        Advances the animation by one frame.
+
+        Returns:
+            bool: True if the effect is still active; False if it's done.
+        """
         self.current_frame += 1
         return self.current_frame < self.duration
         
     def draw(self, surface: pygame.Surface):
-        # Don't draw during delay period
+                """
+        Draws the current frame of the effect to the given surface.
+
+        Args:
+            surface (pygame.Surface): The surface to draw the effect on.
+        """
+        # Do not draw if the effect is still in its delay phase
+
         if self.current_frame < 0:
             return
-            
+         # Calculate progress as a float between 0 and 1    
         progress = self.current_frame / self.duration
         
-        # Draw the main effect animation
+        # Draw the main effect animation, Choose the correct effect drawing method based on effect type
         if self.effect_type == "magic_missile":
             self._draw_magic_missile(surface, progress)
         elif self.effect_type == "heal":
@@ -182,16 +218,24 @@ class Effect:
             self._draw_damage_and_hit(surface, progress)
             
     def _draw_damage_and_hit(self, surface: pygame.Surface, progress: float):
-        """Draw damage numbers and hit/miss overlay"""
-        # Calculate position for damage numbers (slightly above target)
+            """
+    Draws damage numbers and hit/miss/critical text overlay at the target location.
+
+    Args:
+        surface (pygame.Surface): The surface to draw the effect on.
+        progress (float): A float between 0 and 1 indicating how far along the effect is.
+    """
+    # Calculate central position slightly above the target cell
         x = self.end_pos[0] + GRID_SIZE//2
         y = self.end_pos[1] + GRID_SIZE//2 - 30  # Start above target
         
-        # Draw hit/miss overlay
+    # Draw a hit/miss/critical text overlay if available
         if self.hit_type:
             overlay_surface = pygame.Surface((GRID_SIZE * 2, GRID_SIZE * 2), pygame.SRCALPHA)
             alpha = int(255 * (1 - progress))
             
+            # Determine overlay color and text based on hit type
+
             if self.hit_type == "hit":
                 color = (0, 255, 0, alpha)  # Green for hit
                 text = "HIT!"
@@ -202,19 +246,19 @@ class Effect:
                 color = (255, 215, 0, alpha)  # Gold for critical
                 text = "CRITICAL!"
             
-            # Draw text
+            # Render the text and center it
             font = pygame.font.SysFont('Arial', 24, bold=True)
             text_surf = font.render(text, True, color)
             text_rect = text_surf.get_rect(center=(GRID_SIZE, GRID_SIZE))
             overlay_surface.blit(text_surf, text_rect)
             
-            # Draw the overlay
+            # Display overlay above the target
             surface.blit(overlay_surface, (x - GRID_SIZE, y - GRID_SIZE + 50))
         
-        # Draw damage numbers
+        # Draw numeric damage values with bounce animation
         if self.damage is not None:
             # Calculate y position with a slight bounce effect
-            bounce = math.sin(progress * math.pi) * 20
+            bounce = math.sin(progress * math.pi) * 20 # Sinusoidal vertical movement
             damage_y = y - bounce
             
             # Create damage text surface
@@ -231,11 +275,18 @@ class Effect:
             surface.blit(text_surf, text_rect)
         
     def _draw_magic_missile(self, surface, progress):
-        # Draw multiple magic missile particles
+            """
+    Draw multiple magic missile particles, animation that travels from start to end in glowing streaks.
+
+    Args:
+        surface (pygame.Surface): The surface to draw on.
+        progress (float): A float from 0 to 1 indicating animation progress.
+    """
         current_x = self.start_pos[0] + self.dx * progress
         current_y = self.start_pos[1] + self.dy * progress
         
-        # Draw a glowing trail
+        # Render trailing particles to simulate motion blur (glowing trail)
+ 
         for i in range(5):  # 5 particles
             trail_progress = max(0, progress - i * 0.15)
             trail_x = self.start_pos[0] + self.dx * trail_progress
@@ -244,19 +295,25 @@ class Effect:
             size = max(4, 12 - i * 2)
             alpha = max(0, 255 - i * 40)
             
-            # Draw outer glow
+            # Draw outer glow circle
             glow_size = size * 2
             glow_surface = pygame.Surface((glow_size * 2, glow_size * 2), pygame.SRCALPHA)
             pygame.draw.circle(glow_surface, (*self.color, alpha // 3), (glow_size, glow_size), glow_size)
             surface.blit(glow_surface, (trail_x - glow_size + GRID_SIZE//2, trail_y - glow_size + GRID_SIZE//2))
             
-            # Draw core particle
+            # Draw core missile particle
             particle_surface = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
             pygame.draw.circle(particle_surface, (*self.color, alpha), (size, size), size)
             surface.blit(particle_surface, (trail_x - size + GRID_SIZE//2, trail_y - size + GRID_SIZE//2))
             
     def _draw_strike(self, surface, progress):
-        """Draw a basic strike animation"""
+            """
+    Draws a melee strike animation with slashing lines.
+
+    Args:
+        surface (pygame.Surface): The surface to draw on.
+        progress (float): Animation progress from 0 to 1.
+    """
         start_x = self.start_pos[0] + GRID_SIZE//2
         start_y = self.start_pos[1] + GRID_SIZE//2
         end_x = self.end_pos[0] + GRID_SIZE//2
@@ -266,7 +323,7 @@ class Effect:
         slash_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw multiple slash lines with varying angles
+        # Draw multiple slash lines with varying angles (motion and variation)
         for i in range(3):
             p = max(0, min(1, progress * 3 - i * 0.3))
             if 0 < p < 1:
@@ -279,10 +336,16 @@ class Effect:
                                (current_x - 25, current_y + offset),
                                (current_x + 25, current_y - offset), 4)
         
-        surface.blit(slash_surface, (0, 50))  # Offset by 50 to account for turn indicator
+        surface.blit(slash_surface, (0, 50))  # Offset by 50 to account for turn indicator (UI bar)
         
     def _draw_power_attack(self, surface, progress):
-        """Draw a power attack animation with multiple heavy strikes"""
+           """
+    Draws a power attack animation with heavier and more dramatic slashes.
+
+    Args:
+        surface (pygame.Surface): The surface to draw on.
+        progress (float): Animation progress from 0 to 1.
+    """
         start_x = self.start_pos[0] + GRID_SIZE//2
         start_y = self.start_pos[1] + GRID_SIZE//2
         end_x = self.end_pos[0] + GRID_SIZE//2
@@ -292,7 +355,7 @@ class Effect:
         effect_surface = pygame.Surface((WINDOW_WIDTH, WINDOW_HEIGHT), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw multiple powerful slashes
+        # Draw multiple powerful slashes (with impact burst at the end)
         for i in range(4):
             p = max(0, min(1, progress * 4 - i * 0.25))
             if 0 < p < 1:
