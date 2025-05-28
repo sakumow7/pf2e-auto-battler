@@ -168,7 +168,7 @@ class Effect:
         self.dy = self.end_pos[1] - self.start_pos[1]
         
     def update(self) -> bool:
-                """
+        """
         Advances the animation by one frame.
 
         Returns:
@@ -178,7 +178,7 @@ class Effect:
         return self.current_frame < self.duration
         
     def draw(self, surface: pygame.Surface):
-                """
+        """
         Draws the current frame of the effect to the given surface.
 
         Args:
@@ -218,7 +218,7 @@ class Effect:
             self._draw_damage_and_hit(surface, progress)
             
     def _draw_damage_and_hit(self, surface: pygame.Surface, progress: float):
-            """
+    """
     Draws damage numbers and hit/miss/critical text overlay at the target location.
 
     Args:
@@ -275,7 +275,7 @@ class Effect:
             surface.blit(text_surf, text_rect)
         
     def _draw_magic_missile(self, surface, progress):
-            """
+    """
     Draw multiple magic missile particles, animation that travels from start to end in glowing streaks.
 
     Args:
@@ -307,7 +307,7 @@ class Effect:
             surface.blit(particle_surface, (trail_x - size + GRID_SIZE//2, trail_y - size + GRID_SIZE//2))
             
     def _draw_strike(self, surface, progress):
-            """
+    """
     Draws a melee strike animation with slashing lines.
 
     Args:
@@ -339,7 +339,7 @@ class Effect:
         surface.blit(slash_surface, (0, 50))  # Offset by 50 to account for turn indicator (UI bar)
         
     def _draw_power_attack(self, surface, progress):
-           """
+    """
     Draws a power attack animation with heavier and more dramatic slashes.
 
     Args:
@@ -380,15 +380,15 @@ class Effect:
         surface.blit(effect_surface, (0, 50))
         
     def _draw_sneak_attack(self, surface, progress):
-        """Draw a sneak attack animation with quick, precise strikes"""
+        """Draw a sneak attack animation with quick, precise strikes from multiple angles."""
         center_x = self.end_pos[0] + GRID_SIZE//2
         center_y = self.end_pos[1] + GRID_SIZE//2
         
-        # Create sparkle effect
+        # Create sparkle effect (a temporary surface for drawing the sneak attack effects)
         effect_surface = pygame.Surface((GRID_SIZE * 3, GRID_SIZE * 3), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw multiple quick strikes from different angles
+        # Draw multiple quick strikes from different angles (radial strike lines and sparkles around the center)
         for i in range(8):
             angle = (i / 8) * math.pi * 2 + progress * math.pi * 6
             distance = GRID_SIZE * (0.5 + math.sin(progress * math.pi * 3) * 0.5)
@@ -396,7 +396,7 @@ class Effect:
             x = GRID_SIZE * 1.5 + math.cos(angle) * distance
             y = GRID_SIZE * 1.5 + math.sin(angle) * distance
             
-            # Draw strike lines
+            # Draw strike lines that grows with progress
             line_progress = max(0, min(1, progress * 3 - 0.5))
             if line_progress > 0:
                 line_x = GRID_SIZE * 1.5 + math.cos(angle) * distance * line_progress
@@ -405,32 +405,32 @@ class Effect:
                                (GRID_SIZE * 1.5, GRID_SIZE * 1.5),
                                (line_x, line_y), 2)
             
-            # Draw sparkle effects
+            # Draw sparkle effects at tip
             size = max(2, 6 * (1 - progress))
             pygame.draw.circle(effect_surface, (*self.color, alpha), (x, y), size)
         
-        # Add a subtle glow effect
+        # Add a subtle glow effect (center pulse)
         glow_radius = GRID_SIZE * (0.5 + math.sin(progress * math.pi) * 0.3)
         pygame.draw.circle(effect_surface, (*self.color, alpha//3),
                          (GRID_SIZE * 1.5, GRID_SIZE * 1.5), glow_radius)
-        
+        # Blit the effect on the screen
         surface.blit(effect_surface, (center_x - GRID_SIZE * 1.5, center_y - GRID_SIZE * 1.5 + 50))
         
     def _draw_critical(self, surface, progress):
-        """Draw a critical hit animation"""
+    """Draw a critical hit animation with a large burst and radiating energy lines."""
         center_x = self.end_pos[0] + GRID_SIZE//2
         center_y = self.end_pos[1] + GRID_SIZE//2
         
-        # Create burst effect
+        # Create burst effect 
         effect_surface = pygame.Surface((GRID_SIZE * 4, GRID_SIZE * 4), pygame.SRCALPHA)
-        alpha = int(255 * (1 - progress))
+        alpha = int(255 * (1 - progress)) # Fade out
         
-        # Draw expanding burst
+        # Draw expanding burst circle
         burst_radius = GRID_SIZE * 2 * progress
         pygame.draw.circle(effect_surface, (*self.color, alpha//2),
                          (GRID_SIZE * 2, GRID_SIZE * 2), burst_radius, 4)
         
-        # Draw radiating lines
+        # Draw radiating spike lines
         for i in range(12):
             angle = (i / 12) * math.pi * 2
             length = burst_radius * 1.2
@@ -443,7 +443,7 @@ class Effect:
         surface.blit(effect_surface, (center_x - GRID_SIZE * 2, center_y - GRID_SIZE * 2 + 50))
         
     def _draw_miss(self, surface, progress):
-        """Draw a miss animation"""
+    """Draw a miss animation with fast, fading swoosh lines."""
         center_x = self.end_pos[0] + GRID_SIZE//2
         center_y = self.end_pos[1] + GRID_SIZE//2
         
@@ -451,7 +451,7 @@ class Effect:
         effect_surface = pygame.Surface((GRID_SIZE * 2, GRID_SIZE * 2), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw swoosh lines that fade quickly
+        # Draw swoosh lines that fade quickly (3 fading swoosh lines that swing across)
         for i in range(3):
             p = progress + i * 0.2
             if p < 1:
@@ -463,18 +463,18 @@ class Effect:
         surface.blit(effect_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE + 50))
         
     def _draw_shield(self, surface, progress):
-        """Draw a shield animation"""
+    """Draw a shield animation with rotating arcs around the defender."""
         center_x = self.start_pos[0] + GRID_SIZE//2
         center_y = self.start_pos[1] + GRID_SIZE//2
         
-        # Draw rotating shield effect
+        # Draw rotating shield effect (Rotation angle and radius for arcs)
         angle = progress * math.pi * 4
         radius = GRID_SIZE//2 + 5
         
         shield_surface = pygame.Surface((GRID_SIZE * 2, GRID_SIZE * 2), pygame.SRCALPHA)
-        alpha = int(255 * (1 - progress * 0.5))
+        alpha = int(255 * (1 - progress * 0.5)) # Fade out slower
         
-        # Draw multiple shield arcs
+        # Draw multiple shield arcs (three arcs rotating around the center)
         for i in range(3):
             start_angle = angle + (i * math.pi * 2 / 3)
             end_angle = start_angle + math.pi / 2
@@ -485,24 +485,32 @@ class Effect:
                 x = GRID_SIZE + math.cos(rad) * radius
                 y = GRID_SIZE + math.sin(rad) * radius
                 points.append((x, y))
-                
+                 # Draw the arc if enough points were gathered
             if len(points) > 1:
                 pygame.draw.lines(shield_surface, (*self.color, alpha), False, points, 3)
         
         surface.blit(shield_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE + 50))
         
     def _draw_heal(self, surface, progress):
-        """Draw a healing animation"""
+    """
+    Draw a healing animation effect.
+
+    Creates an expanding healing circle and four glowing cross symbols around the target.
+    
+    Args:
+        surface (pygame.Surface): The surface to draw on.
+        progress (float): A float between 0 and 1 indicating the animation's progress.
+    """
         center_x = self.start_pos[0] + GRID_SIZE//2
         center_y = self.start_pos[1] + GRID_SIZE//2
         radius = GRID_SIZE//2 * progress
         
-        # Draw expanding healing circle
+        # Draw expanding healing circle (Create a transparent surface)
         circle_surface = pygame.Surface((GRID_SIZE * 2, GRID_SIZE * 2), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         pygame.draw.circle(circle_surface, (*self.color, alpha), (GRID_SIZE, GRID_SIZE), radius, 3)
         
-        # Draw healing crosses
+        # Draw healing crosses in four directions
         for i in range(4):
             angle = math.pi * 2 * (i / 4) + progress * math.pi
             x = center_x + math.cos(angle) * radius
@@ -512,25 +520,34 @@ class Effect:
             pygame.draw.line(surface, self.color, (x - cross_size, y + 50), (x + cross_size, y + 50), 2)
             pygame.draw.line(surface, self.color, (x, y - cross_size + 50), (x, y + cross_size + 50), 2)
             
+        # Overlay the healing circle    
         surface.blit(circle_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE + 50))
 
     def _draw_link(self, surface, progress):
-        """Draw the spirit link animation"""
+    """
+    Draw the spirit link animation.
+
+    Animates a line linking two positions, growing in intensity over time.
+    
+    Args:
+        surface (pygame.Surface): The surface to draw on.
+        progress (float): A float between 0 and 1 indicating the animation's progress.
+    """
         center_x = self.start_pos[0] + GRID_SIZE//2
         center_y = self.start_pos[1] + GRID_SIZE//2
         
-        # Create link effect
+        # Create a transparent surface for the link effect
         effect_surface = pygame.Surface((GRID_SIZE * 4, GRID_SIZE * 4), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw connecting lines
+        # Draw multiple connecting lines to simulate the link forming
         for i in range(4):
             p = max(0, min(1, progress * 4 - i * 0.25))
             if 0 < p < 1:
                 current_x = self.start_pos[0] + (self.end_pos[0] - self.start_pos[0]) * p
                 current_y = self.start_pos[1] + (self.end_pos[1] - self.start_pos[1]) * p
                 
-                # Draw line with varying thickness
+                # Draw line with varying thickness (Line width decreases as it progresses)
                 line_width = int(GRID_SIZE * (1 - p * 0.5))
                 pygame.draw.line(effect_surface, (*self.color, alpha),
                                (self.start_pos[0] + GRID_SIZE//2, self.start_pos[1] + GRID_SIZE//2),
@@ -539,15 +556,23 @@ class Effect:
         surface.blit(effect_surface, (center_x - GRID_SIZE * 2, center_y - GRID_SIZE * 2 + 50))
 
     def _draw_buff(self, surface, progress):
-        """Draw the sanctuary animation"""
+    """
+    Draw the sanctuary (buff) animation.
+
+    Shows rotating arcs around the caster to indicate a protective buff.
+    
+     Args:
+        surface (pygame.Surface): The surface to draw on.
+        progress (float): A float between 0 and 1 indicating the animation's progress.
+    """
         center_x = self.start_pos[0] + GRID_SIZE//2
         center_y = self.start_pos[1] + GRID_SIZE//2
         
-        # Create shield effect
+        # Create shield effect (a transparent surface for the buff effect)
         effect_surface = pygame.Surface((GRID_SIZE * 4, GRID_SIZE * 4), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw multiple shield arcs
+        # Draw multiple shield arcs (4 shield arcs in different directions)
         for i in range(4):
             start_angle = math.pi * 2 * (i / 4)
             end_angle = start_angle + math.pi / 2
@@ -558,7 +583,7 @@ class Effect:
                 x = GRID_SIZE + math.cos(rad) * GRID_SIZE
                 y = GRID_SIZE + math.sin(rad) * GRID_SIZE
                 points.append((x, y))
-                
+            # Only draw if we have enough points to make a visible arc    
             if len(points) > 1:
                 pygame.draw.lines(effect_surface, (*self.color, alpha), False, points, 3)
         
@@ -579,16 +604,38 @@ class GridPosition:
         self.y = y
     
     def __eq__(self, other):
+        """
+        Compare two GridPosition objects for equality.
+        
+        Returns:
+            bool: True if both positions have the same coordinates.
+        """
         if not isinstance(other, GridPosition):
             return False
         return self.x == other.x and self.y == other.y
     
     def distance_to(self, other: 'GridPosition') -> int:
-        """Calculate grid distance (in squares) to another position"""
+        """
+        Calculate grid-based (Chebyshev) distance to another position.
+
+        Args:
+            other (GridPosition): The other grid position to measure to.
+
+        Returns:
+            int: Distance in grid units.
+        """
         return max(abs(self.x - other.x), abs(self.y - other.y))
     
     def get_pixel_pos(self, y_offset=0) -> Tuple[int, int]:
-        """Convert grid position to pixel coordinates"""
+        """
+        Convert grid position to pixel coordinates.
+
+        Args:
+            y_offset (int): Optional vertical pixel offset.
+
+        Returns:
+            Tuple[int, int]: Pixel coordinates (x, y).
+        """
         return (self.x * GRID_SIZE, self.y * GRID_SIZE + y_offset)
 
 class Character:
@@ -625,7 +672,12 @@ class Character:
         self.bonus_damage = 0  # New attribute for damage upgrade
         
     def load_sprite(self, sprite_path: str):
-        """Load and scale character sprite"""
+        """
+        Load and scale character sprite from a file.
+
+        Args:
+            sprite_path (str): Path to the sprite image file.
+        """
         try:
             if os.path.exists(sprite_path):
                 self.sprite_path = sprite_path
@@ -636,32 +688,58 @@ class Character:
             self.sprite = None
     
     def is_alive(self) -> bool:
+        """Return True if character is alive (HP > 0), otherwise False."""
         return self.hp > 0
     
     def get_ac(self) -> int:
+         """
+        Get the current armor class, adjusted if the character is off guard.
+
+        Returns:
+            int: Current effective armor class.
+        """
         return self.base_ac - 2 if self.off_guard else self.base_ac
     
     def can_move_to(self, new_pos: GridPosition, game: 'Game') -> bool:
-        """Check if character can move to the given position"""
+        """
+        Check if the character can move to the specified position.
+
+        Args:
+            new_pos (GridPosition): Target position.
+            game (Game): Reference to the game instance for context.
+
+        Returns:
+            bool: True if movement is allowed, False otherwise.
+        """
+        # Check if target is within grid boundaries
         if not (0 <= new_pos.x < GRID_COLS and 0 <= new_pos.y < GRID_ROWS):
             return False
         
-        # Check if position is occupied
+        # Check if another character is already at the new position
         for char in game.get_all_characters():
             if char != self and char.position == new_pos:
                 return False
         
-        # Calculate movement cost (diagonal movement costs more)
+        # Calculate movement cost (diagonal movement costs more), if the movement fits within the character's speed
         distance = self.position.distance_to(new_pos)
         movement_cost = distance * 5  # 5 feet per square
         
         return movement_cost <= self.speed
     
     def get_valid_moves(self, game: 'Game') -> List[GridPosition]:
-        """Get all valid movement positions"""
+         """
+        Get all valid grid positions the character can move to.
+
+        Args:
+            game (Game): Reference to the game instance.
+
+        Returns:
+            List[GridPosition]: List of reachable and valid positions.
+        """
         valid_moves = []
-        max_squares = self.speed // 5
-        
+        max_squares = self.speed // 5 # Max number of grid squares the character can move
+
+        # Iterate within a square movement range
         for x in range(max(0, self.position.x - max_squares), 
                       min(GRID_COLS, self.position.x + max_squares + 1)):
             for y in range(max(0, self.position.y - max_squares),
@@ -673,7 +751,16 @@ class Character:
         return valid_moves
     
     def move_to(self, new_pos: GridPosition, game: 'Game') -> bool:
-        """Attempt to move character to new position"""
+        """
+        Attempt to move the character to a new grid position.
+
+        Args:
+            new_pos (GridPosition): The desired destination.
+            game (Game): Reference to the game instance.
+
+        Returns:
+            bool: True if the move was successful, False otherwise.
+        """
         if self.can_move_to(new_pos, game):
             self.position = new_pos
             return True
@@ -683,9 +770,10 @@ class Character:
     def draw(self, surface: pygame.Surface, game: Optional['Game'] = None):
         if not self.alive:
             return
+        # Calculate position in pixels    
         x = self.position.x * GRID_SIZE
         y = self.position.y * GRID_SIZE  # Remove GRID_TOP - it's added when grid_surface is blitted
-        # Draw active turn indicator if this is the current character
+        # Draw active turn indicator if this is the current character (Highlight character if it's their turn)
         if (game and not self.is_enemy and 
             game.state == "combat" and 
             game.current_member_idx < len(game.party) and 
@@ -696,13 +784,14 @@ class Character:
             pygame.draw.rect(highlight_surface, highlight_color, 
                            (0, 0, GRID_SIZE + 8, GRID_SIZE + 8), 4, border_radius=4)
             surface.blit(highlight_surface, (x - 4, y - 4))
-        # Draw character sprite or fallback shape
+         # Draw character sprite or fallback shape (circle for player, diamond for enemy)
         if self.sprite:
             # Always scale sprite to fit grid square
             sprite = pygame.transform.scale(self.sprite, (GRID_SIZE, GRID_SIZE))
             surface.blit(sprite, (x, y))
         else:
             if self.is_enemy:
+                # Diamond shape for enemies
                 points = [
                     (x + GRID_SIZE//2, y),
                     (x + GRID_SIZE, y + GRID_SIZE//2),
@@ -712,6 +801,7 @@ class Character:
                 pygame.draw.polygon(surface, self.color, points)
                 pygame.draw.polygon(surface, (255, 255, 255), points, 2)
             else:
+                # Circle for players
                 pygame.draw.circle(surface, self.color, 
                                  (x + GRID_SIZE//2, y + GRID_SIZE//2), 
                                  GRID_SIZE//2)
