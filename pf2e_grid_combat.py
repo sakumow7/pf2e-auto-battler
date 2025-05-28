@@ -776,6 +776,12 @@ class Character:
         old_hp = self.hp
         self.hp = self.max_hp
         return self.hp - old_hp
+    
+    def heal_amount(self, amount: int) -> int:
+        """Heal a specific amount of HP"""
+        old_hp = self.hp
+        self.hp = min(self.hp + amount, self.max_hp)
+        return self.hp - old_hp
 
     def attack(self, target: 'Character', game: 'Game', dice: Tuple[int, int] = (1, 8), 
               bonus_damage: int = 0, sneak_attack: bool = False) -> Tuple[int, bool]:
@@ -1939,6 +1945,7 @@ class Game:
             Enemy("Ogre", hp=40, ac=17, attack_bonus=7, damage_dice=(2, 6)),
             Enemy("Ogre", hp=40, ac=17, attack_bonus=7, damage_dice=(2, 6)),
             # Wave 3 (Boss)
+            Enemy("Wyvern", hp=55, ac=19, attack_bonus=9, damage_dice=(2, 8)),
             Enemy("Wyvern", hp=55, ac=19, attack_bonus=9, damage_dice=(2, 8))
         ]
         
@@ -1974,9 +1981,9 @@ class Game:
             self.show_wave_announcement("Wave 2: Ogres' Fury")
             positions = [(GRID_COLS - 3, 1), (GRID_COLS - 1, 1)]
         elif self.wave_number == 3: # Third wave (Wyvern Boss)
-            num_enemies_this_wave = 1
-            self.show_wave_announcement("Wave 3: The Wyvern Lord!")
-            positions = [(GRID_COLS // 2, 1)]
+            num_enemies_this_wave = 2
+            self.show_wave_announcement("Wave 3: Wyvern Assault!")
+            positions = [(GRID_COLS - 3, 1), (GRID_COLS - 1, 2)]
         else:
             self.end_battle(victory=True)
             return
@@ -2727,11 +2734,7 @@ class Game:
 
     def start_upgrades(self):
         """Start the upgrade selection process"""
-        # Heal all party members to full
-        for member in self.party:
-            healed = member.heal_full()
-            if healed > 0:
-                self.add_message(f"{member.name} recovers {healed} HP!")
+        # No healing between waves - healing only happens in combat
         
         self.state = "upgrade"
         self.upgrade_selection = 0  # Start with first party member
@@ -2843,7 +2846,7 @@ class Game:
         if self.wave_number == 1: # After Goblins (Wave 1)
             next_wave_type = "Ogres (Wave 2)"
         elif self.wave_number == 2: # After Ogres (Wave 2)
-            next_wave_type = "The Wyvern Lord (Wave 3 Boss)"
+            next_wave_type = "Wyvern Assault (Wave 3 Boss)"
         else: 
             next_wave_type = "Error determining next wave"
 
