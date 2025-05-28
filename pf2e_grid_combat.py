@@ -975,8 +975,16 @@ class Fighter(Character):
     def __init__(self, name: str):
         super().__init__(name, hp=50, ac=18, attack_bonus=9)
         self.color = FIGHTER_COLOR
+        self.shield_raised = False  # Track if shield is currently raised
         self.load_sprite(IMAGE_PATHS['fighter'])
         
+    def get_ac(self) -> int:
+        """Get AC including shield bonus if raised"""
+        base_ac = super().get_ac()
+        if self.shield_raised:
+            return base_ac + 2
+        return base_ac
+    
     def get_actions(self, game: 'Game') -> List[Tuple[str, GridPosition, callable]]:
         """Get available actions for the fighter"""
         actions = []  # Start fresh instead of using super() to control action order
@@ -988,6 +996,10 @@ class Fighter(Character):
         # Add Heal action
         if game.actions_left >= 1 and self.potions > 0:
             actions.append(("Heal [1]", self.position, lambda: self.heal(game)))
+        
+        # Add Raise Shield action if shield is not already raised
+        if game.actions_left >= 1 and not self.shield_raised:
+            actions.append(("Raise Shield [1]", self.position, lambda: self.raise_shield(game)))
         
         # Add melee actions if we have a selected target
         if game.selected_target and game.selected_target.is_alive():
@@ -1023,6 +1035,59 @@ class Fighter(Character):
         
         used, hit = self.attack(target, game, dice=(2, 10), bonus_damage=2)
         return 2, True  # Always consume 2 actions, regardless of hit
+
+    def raise_shield(self, game: 'Game') -> Tuple[int, bool]:
+        """Raise the shield if it's not already raised"""
+        if game.actions_left < 1:
+            game.add_message("Not enough actions to raise shield!")
+            return 0, False
+        
+        if self.shield_raised:
+            game.add_message(f"{self.name}'s shield is already raised!")
+            return 0, False
+        
+        game.add_message(f"{self.name} raises their shield! (+2 AC until start of next turn)")
+        
+        # Add shield animation
+        game.add_effect(Effect(self.get_pixel_pos(), self.get_pixel_pos(), SHIELD_COLOR, effect_type="shield"))
+        
+        self.shield_raised = True
+        return 1, True
+    
+    def draw(self, surface: pygame.Surface, game: Optional['Game'] = None):
+        """Override draw to add shield indicator"""
+        # Call parent draw method first
+        super().draw(surface, game)
+        
+        # Draw shield indicator if shield is raised
+        if self.shield_raised:
+            x = self.position.x * GRID_SIZE
+            y = self.position.y * GRID_SIZE
+            
+            # Draw a blue shield glow around the fighter
+            pulse = abs(math.sin(pygame.time.get_ticks() / 400))  # Slower pulse for shield
+            shield_color = (100, 150, 255, int(60 + 80 * pulse))  # Blue color with pulsing alpha
+            shield_surface = pygame.Surface((GRID_SIZE + 10, GRID_SIZE + 10), pygame.SRCALPHA)
+            pygame.draw.rect(shield_surface, shield_color, 
+                           (0, 0, GRID_SIZE + 10, GRID_SIZE + 10), 5, border_radius=6)
+            surface.blit(shield_surface, (x - 5, y - 5))
+            
+            # Draw a small shield icon in the corner
+            shield_icon_x = x + GRID_SIZE - 16
+            shield_icon_y = y + 2
+            shield_icon_color = (200, 220, 255)
+            
+            # Draw shield shape (simplified)
+            shield_points = [
+                (shield_icon_x + 8, shield_icon_y),      # Top center
+                (shield_icon_x + 14, shield_icon_y + 4), # Top right
+                (shield_icon_x + 14, shield_icon_y + 8), # Bottom right
+                (shield_icon_x + 8, shield_icon_y + 12), # Bottom center
+                (shield_icon_x + 2, shield_icon_y + 8),  # Bottom left
+                (shield_icon_x + 2, shield_icon_y + 4)   # Top left
+            ]
+            pygame.draw.polygon(surface, shield_icon_color, shield_points)
+            pygame.draw.polygon(surface, (255, 255, 255), shield_points, 1)
 
 class Rogue(Character):
     """
@@ -1942,6 +2007,13 @@ class Game:
         self.selected_target = None
         self.highlighted_squares = []
         
+        # Reset shield for the current character if it's their turn starting
+        if self.current_member_idx < len(self.party):
+            current_char = self.party[self.current_member_idx]
+            if isinstance(current_char, Fighter) and current_char.shield_raised:
+                current_char.shield_raised = False
+                self.add_message(f"{current_char.name} lowers their shield")
+        
         self.current_member_idx += 1
         self.actions_left = 3
         
@@ -1962,6 +2034,10 @@ class Game:
                         char.shield_up = False
                         char.base_ac -= 2
                         self.add_message(f"{char.name}'s Shield spell fades")
+                elif isinstance(char, Fighter):
+                    if char.shield_raised:
+                        char.shield_raised = False
+                        self.add_message(f"{char.name} lowers their shield")
             
             # Check if wave is complete after enemy turns
             self.check_wave_complete()
@@ -2084,6 +2160,10 @@ class Game:
                         char.shield_up = False
                         char.base_ac -= 2
                         self.add_message(f"{char.name}'s Shield spell fades")
+                elif isinstance(char, Fighter):
+                    if char.shield_raised:
+                        char.shield_raised = False
+                        self.add_message(f"{char.name} lowers their shield")
             
             # Check if battle is over
             if not any(char.is_alive() for char in self.party):
