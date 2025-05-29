@@ -1,3 +1,8 @@
+"""
+This module initializes the core settings and constants for a Pygame-based tactical RPG.
+It sets up screen dimensions, grid layout, color schemes, font settings, character image paths,
+and animation effect definitions.
+"""
 import pygame
 import sys
 import random
@@ -150,7 +155,12 @@ class Effect:
         return self.current_frame < self.duration
         
     def draw(self, surface: pygame.Surface):
-        # Don't draw during delay period
+        """
+        Draw the current state of the animation on the given surface.
+
+        Args:
+            surface: The Pygame surface to draw onto.
+        """
         if self.current_frame < 0:
             return
             
@@ -248,7 +258,7 @@ class Effect:
             surface.blit(text_surf, text_rect)
         
     def _draw_magic_missile(self, surface, progress):
-        # Draw multiple magic missile particles
+        """Draw multiple magic missile trail moving from start to end."""
         current_x = self.start_pos[0] + self.dx * progress
         current_y = self.start_pos[1] + self.dy * progress
         
@@ -614,9 +624,14 @@ class Character:
             self.sprite = None
     
     def is_alive(self) -> bool:
+        """Check if the character is still alive."""
         return self.hp > 0
     
     def get_ac(self) -> int:
+        """
+        Get the character's effective Armor Class.
+        Returns a lower AC if the character is caught off guard.
+        """
         return self.base_ac - 2 if self.off_guard else self.base_ac
     
     def can_move_to(self, new_pos: GridPosition, game: 'Game') -> bool:
@@ -659,6 +674,14 @@ class Character:
             return False
     
     def draw(self, surface: pygame.Surface, game: Optional['Game'] = None):
+        """
+        Render the character onto the game surface, including visual effects
+        for targeting, turn indicators, and sanctuary.
+
+        Args:
+            surface (pygame.Surface): The drawing surface.
+            game (Optional[Game]): Game context for conditional effects.
+        """
         if not self.alive:
             return
         x = self.position.x * GRID_SIZE
@@ -992,6 +1015,7 @@ class Character:
         for condition in expired_conditions:
             self.remove_condition(condition)
 
+# ---------------- Fighter Class ---------------- #
 class Fighter(Character):
     """
     Fighter class character specializing in melee combat.
@@ -3291,7 +3315,18 @@ class Game:
         char = self.ai_current_char
         
         def get_unoccupied_moves(character, target_pos):
-            all_moves = character.get_valid_moves(self)
+            """
+            Returns a list of valid, unoccupied positions a character can move to,
+            sorted by distance to the target position.
+
+            Parameters:
+            character (Character): The character attempting to move.
+            target_pos (Vector2): The position the character wants to approach.
+
+            Returns:
+            List[Vector2]: Sorted list of unoccupied positions.
+            """
+            all_moves = character.get_valid_moves(self) # Get all possible valid moves for the character
             unoccupied = []
             for pos in all_moves:
                 occupied = False
@@ -3301,25 +3336,31 @@ class Game:
                         break
                 if not occupied:
                     unoccupied.append(pos)
+            # Sort the available positions by proximity to the target
             if unoccupied:
                 return sorted(unoccupied, key=lambda p: p.distance_to(target_pos))
             return []
         
         def check_for_overlap():
-            chars = [c for c in self.get_all_characters() if c.is_alive()]
-            for i in range(len(chars)):
-                for j in range(i+1, len(chars)):
-                    if chars[i].position == chars[j].position:
-                        pass  # Overlap detected but no debug message
+                
+                """
+                Checks for overlapping positions among alive characters.
+                This function currently does nothing if an overlap is detected.
+                """
+                chars = [c for c in self.get_all_characters() if c.is_alive()]
+                for i in range(len(chars)):
+                    for j in range(i+1, len(chars)):
+                        if chars[i].position == chars[j].position:
+                            pass  # Overlap detected but no debug message
         
-        action_performed = False
+        action_performed = False # Variable to track whether an action was successfully performed during AI's turn
         
-        if isinstance(char, Fighter):
+        if isinstance(char, Fighter):# AI decision logic for a Fighter character
             targets = [(enemy, char.position.distance_to(enemy.position))
                       for enemy in self.current_enemies if enemy.is_alive()]
             if targets:
                 target, distance = min(targets, key=lambda x: x[1])
-                if distance <= 1:
+                if distance <= 1:# Close enough to attack
                     if self.ai_actions_remaining >= 2:
                         used, _ = char.power_attack(target, self)
                         self.ai_actions_remaining -= used
@@ -3328,7 +3369,7 @@ class Game:
                         used, _ = char.attack(target, self, dice=(1, 10))
                         self.ai_actions_remaining -= used
                         action_performed = True
-                else:
+                else:# Move closer if not adjacent
                     moves = get_unoccupied_moves(char, target.position)
                     if moves:
                         best_move = moves[0]
@@ -3337,7 +3378,7 @@ class Game:
                             self.ai_actions_remaining -= 1
                             action_performed = True
         
-        elif isinstance(char, Rogue):
+        elif isinstance(char, Rogue):# Find all living enemy targets and calculate distance from the Rogue
             targets = [(enemy, char.position.distance_to(enemy.position))
                       for enemy in self.current_enemies if enemy.is_alive()]
             if targets:
@@ -3355,7 +3396,7 @@ class Game:
                         used, _ = char.strike(target, self)
                         self.ai_actions_remaining -= used
                         action_performed = True
-                else:
+                else: # If not adjacent, try to move into flanking position
                     moves = get_unoccupied_moves(char, target.position)
                     if moves:
                         best_move = None
@@ -3389,7 +3430,7 @@ class Game:
                 if ally != char and ally.is_alive() and ally.hp < ally.max_hp
             ])
             
-            if allies_needing_heal:
+            if allies_needing_heal:# Sort allies by the amount of HP they are missing (descending)
                 allies_needing_heal.sort(key=lambda x: x[1], reverse=True)
                 target_ally, missing_hp = allies_needing_heal[0]
                 distance = char.position.distance_to(target_ally.position)
@@ -3424,7 +3465,7 @@ class Game:
                             check_for_overlap()
                             self.ai_actions_remaining -= 1
                             action_performed = True
-            else:
+            else: # Find all living enemies and calculate distances
                 targets = [(enemy, char.position.distance_to(enemy.position))
                           for enemy in self.current_enemies if enemy.is_alive()]
                 if targets:
@@ -3443,7 +3484,10 @@ class Game:
                                 action_performed = True
         
         elif isinstance(char, Wizard):
-            targets = [(enemy, char.position.distance_to(enemy.position))
+            """
+            Handle wizard AI behavior - prioritize ranged magic attacks
+            """
+            targets = [(enemy, char.position.distance_to(enemy.position)) # Find all living enemies and calculate distances
                       for enemy in self.current_enemies if enemy.is_alive()]
             if targets:
                 target, distance = min(targets, key=lambda x: x[1])
