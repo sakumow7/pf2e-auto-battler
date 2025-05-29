@@ -8,6 +8,7 @@ from typing import List, Tuple, Dict, Optional, Union
 # Initialize Pygame
 pygame.init()
 pygame.font.init()
+pygame.mixer.init()  # Initialize the mixer for sound
 
 # Get the display info to set window size
 display_info = pygame.display.Info()
@@ -178,7 +179,23 @@ class Effect:
         # Draw damage numbers and hit/miss overlay
         if self.damage is not None or self.hit_type is not None:
             self._draw_damage_and_hit(surface, progress)
-            
+
+    def draw_with_offset(self, surface: pygame.Surface, offset_x: int, offset_y: int):
+        """Draw effect with position offset for fullscreen centering"""
+        # Temporarily adjust positions
+        original_start = self.start_pos
+        original_end = self.end_pos
+        
+        self.start_pos = (self.start_pos[0] + offset_x, self.start_pos[1] + offset_y)
+        self.end_pos = (self.end_pos[0] + offset_x, self.end_pos[1] + offset_y)
+        
+        # Draw normally
+        self.draw(surface)
+        
+        # Restore original positions
+        self.start_pos = original_start
+        self.end_pos = original_end
+
     def _draw_damage_and_hit(self, surface: pygame.Surface, progress: float):
         """Draw damage numbers and hit/miss overlay"""
         # Calculate position for damage numbers (slightly above target)
@@ -1548,6 +1565,10 @@ class Game:
         self.screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
         pygame.display.set_caption("PF2E Grid Combat")
         
+        # Fullscreen variables
+        self.is_fullscreen = False
+        self.windowed_size = (WINDOW_WIDTH, WINDOW_HEIGHT)
+        
         self.clock = pygame.time.Clock()
         self.state = "intro"
         self.selected_character = None
@@ -1591,6 +1612,19 @@ class Game:
         self.first_time_upgrades = True
         self.showing_upgrade_help = False
         self.upgrade_help_button_rect = None
+        
+        # Load background image
+        self.background_image = None
+        try:
+            if os.path.exists('images/floor.webp'):
+                original_bg = pygame.image.load('images/floor.webp').convert()
+                # Scale the background to fit the entire grid
+                grid_width = GRID_COLS * GRID_SIZE
+                grid_height = GRID_ROWS * GRID_SIZE
+                self.background_image = pygame.transform.scale(original_bg, (grid_width, grid_height))
+        except Exception as e:
+            print(f"Error loading background image: {e}")
+            self.background_image = None
         
         # Create surfaces
         self.grid_surface = pygame.Surface((GRID_COLS * GRID_SIZE, GRID_ROWS * GRID_SIZE))
@@ -1678,6 +1712,14 @@ class Game:
 
     def handle_click(self, pos: Tuple[int, int], right_click: bool = False):
         """Handle mouse click events"""
+        # Calculate fullscreen offsets
+        screen_width, screen_height = self.screen.get_size()
+        offset_x = max(0, (screen_width - WINDOW_WIDTH) // 2)
+        offset_y = max(0, (screen_height - WINDOW_HEIGHT) // 2)
+        
+        # Adjust click position to account for fullscreen centering
+        adjusted_pos = (pos[0] - offset_x, pos[1] - offset_y)
+        
         # Don't handle any clicks during victory overlay
         if self.victory_overlay_active:
             return
@@ -1692,7 +1734,7 @@ class Game:
             self.showing_upgrade_help = False
             return
             
-        # Check if help button was clicked
+        # Check if help button was clicked (use original pos for help button since it's drawn with offset)
         if self.help_button_rect and self.help_button_rect.collidepoint(pos):
             self.showing_help = True
             return
@@ -1710,7 +1752,7 @@ class Game:
         # Handle victory/game over screen clicks
         if self.state in ["victory", "game_over"]:
             for button_rect, action_func in self.action_buttons:
-                if button_rect.collidepoint(pos):
+                if button_rect.collidepoint(adjusted_pos):
                     action_func()
                     return
             return
@@ -1719,10 +1761,10 @@ class Game:
         if self.state == "intro":
             if not right_click:  # Only handle left clicks
                 # For the action buttons at the bottom
-                if pos[1] > WINDOW_HEIGHT - 100:
-                    adjusted_pos = (pos[0], pos[1] - (WINDOW_HEIGHT - 100))
+                if adjusted_pos[1] > WINDOW_HEIGHT - 100:
+                    button_adjusted_pos = (adjusted_pos[0], adjusted_pos[1] - (WINDOW_HEIGHT - 100))
                     for button_rect, action_func in self.action_buttons:
-                        if button_rect.collidepoint(adjusted_pos):
+                        if button_rect.collidepoint(button_adjusted_pos):
                             action_func()
                             return
             return
@@ -1731,7 +1773,7 @@ class Game:
         if self.state == "upgrade":
             if not right_click:  # Only handle left clicks
                 for button_rect, action_func in self.action_buttons:
-                    if button_rect.collidepoint(pos):
+                    if button_rect.collidepoint(adjusted_pos):
                         action_func()
                         return
             return
@@ -1740,7 +1782,7 @@ class Game:
         if self.state == "wave_confirmation":
             if not right_click:  # Only handle left clicks
                 for button_rect, action_func in self.action_buttons:
-                    if button_rect.collidepoint(pos):
+                    if button_rect.collidepoint(adjusted_pos):
                         action_func()
                         return
             return
@@ -1751,11 +1793,11 @@ class Game:
             return
         
         # Check if click is on an action button
-        if pos[1] > WINDOW_HEIGHT - 100:  # In action button area
+        if adjusted_pos[1] > WINDOW_HEIGHT - 100:  # In action button area
             if not right_click:  # Only handle left clicks for buttons
-                button_y = pos[1] - (WINDOW_HEIGHT - 100)
+                button_y = adjusted_pos[1] - (WINDOW_HEIGHT - 100)
                 for button_rect, action_func in self.action_buttons:
-                    if button_rect.collidepoint(pos[0], button_y):
+                    if button_rect.collidepoint(adjusted_pos[0], button_y):
                         if isinstance(action_func, tuple):
                             # This is an action that needs a target
                             action_name, action_func = action_func
@@ -1774,9 +1816,9 @@ class Game:
                         self.update_available_actions()
                         return
         
-        # Handle grid clicks
-        grid_x = pos[0] // GRID_SIZE
-        grid_y = (pos[1] - GRID_TOP) // GRID_SIZE  # Adjust for turn indicator offset
+        # Handle grid clicks (use adjusted position)
+        grid_x = adjusted_pos[0] // GRID_SIZE
+        grid_y = (adjusted_pos[1] - GRID_TOP) // GRID_SIZE  # Adjust for turn indicator offset
         
         if not (0 <= grid_x < GRID_COLS and 0 <= grid_y < GRID_ROWS):
             return
@@ -1930,6 +1972,9 @@ class Game:
         elif choice == "Cleric":
             player = Cleric("Kyra")
             self.party = [player, Fighter("Valeros"), Rogue("Merisiel"), Wizard("Ezren")]
+        
+        # Start playing background music
+        self.start_music()
         
         # Set initial positions for party members higher up the grid
         for i, member in enumerate(self.party):
@@ -2184,6 +2229,8 @@ class Game:
     def end_battle(self, victory=False):
         """End the current battle or game"""
         if victory:
+            # Stop music before showing victory screen
+            self.stop_music()
             self.add_message("\n🏆 Congratulations! Your party has defeated all foes!")
             self.state = "victory"
         else:
@@ -2198,24 +2245,37 @@ class Game:
     
     def draw_grid(self):
         """Draw the combat grid"""
-        self.grid_surface.fill(BACKGROUND_COLOR)
+        # Draw background image if available, otherwise use solid color
+        if self.background_image:
+            self.grid_surface.blit(self.background_image, (0, 0))
+        else:
+            self.grid_surface.fill(BACKGROUND_COLOR)
         
-        # Draw grid lines
+        # Draw grid lines with some transparency so background shows through
+        grid_line_color = (80, 80, 80, 128)  # Semi-transparent gray
+        
+        # Create a temporary surface for grid lines with alpha
+        grid_lines_surface = pygame.Surface((GRID_COLS * GRID_SIZE, GRID_ROWS * GRID_SIZE), pygame.SRCALPHA)
+        
         for x in range(GRID_COLS + 1):
-            pygame.draw.line(self.grid_surface, GRID_COLOR,
+            pygame.draw.line(grid_lines_surface, grid_line_color,
                            (x * GRID_SIZE, 0),
                            (x * GRID_SIZE, GRID_ROWS * GRID_SIZE))
         
         for y in range(GRID_ROWS + 1):
-            pygame.draw.line(self.grid_surface, GRID_COLOR,
+            pygame.draw.line(grid_lines_surface, grid_line_color,
                            (0, y * GRID_SIZE),
                            (GRID_COLS * GRID_SIZE, y * GRID_SIZE))
         
+        # Blit the grid lines onto the grid surface
+        self.grid_surface.blit(grid_lines_surface, (0, 0))
+        
         # Highlight valid moves
         for pos in self.highlighted_squares:
-            pygame.draw.rect(self.grid_surface, GRID_HIGHLIGHT,
-                           (pos.x * GRID_SIZE, pos.y * GRID_SIZE,
-                            GRID_SIZE, GRID_SIZE))
+            # Create a semi-transparent highlight
+            highlight_surface = pygame.Surface((GRID_SIZE, GRID_SIZE), pygame.SRCALPHA)
+            highlight_surface.fill((120, 120, 120, 100))  # Semi-transparent highlight
+            self.grid_surface.blit(highlight_surface, (pos.x * GRID_SIZE, pos.y * GRID_SIZE))
         
         # Draw characters
         for char in self.party:
@@ -2307,6 +2367,10 @@ class Game:
     
     def draw_turn_indicator(self):
         """Draw the turn indicator"""
+        self.draw_turn_indicator_at_offset(0, 0)
+    
+    def draw_turn_indicator_at_offset(self, offset_x: int, offset_y: int):
+        """Draw the turn indicator with position offset"""
         if self.state == "combat":
             indicator_surface = pygame.Surface((200, 40))
             indicator_surface.fill(BACKGROUND_COLOR)
@@ -2318,7 +2382,7 @@ class Game:
                 # Draw action points for party members
                 action_text = f"Actions: {self.actions_left}"
                 action_surf = FONT.render(action_text, True, TEXT_COLOR)
-                self.screen.blit(action_surf, (220, 10))
+                self.screen.blit(action_surf, (offset_x + 220, offset_y + 10))
             else:
                 # Enemy turn
                 if self.current_enemy:
@@ -2327,7 +2391,7 @@ class Game:
                     # Draw action points for current enemy
                     action_text = f"Actions: {self.enemy_actions_remaining}"
                     action_surf = FONT.render(action_text, True, TEXT_COLOR)
-                    self.screen.blit(action_surf, (220, 10))
+                    self.screen.blit(action_surf, (offset_x + 220, offset_y + 10))
                 else:
                     color = ENEMY_COLOR
                     text = "Enemy Turn"
@@ -2340,7 +2404,7 @@ class Game:
             text_rect = text_surf.get_rect(center=indicator_surface.get_rect().center)
             indicator_surface.blit(text_surf, text_rect)
             
-            self.screen.blit(indicator_surface, (10, 10))
+            self.screen.blit(indicator_surface, (offset_x + 10, offset_y + 10))
     
     def handle_scroll(self, event):
         """Handle scrolling of the combat log"""
@@ -2352,6 +2416,11 @@ class Game:
     def draw(self):
         """Draw the game screen"""
         self.screen.fill(BACKGROUND_COLOR)
+        
+        # Calculate centering offsets for fullscreen mode
+        screen_width, screen_height = self.screen.get_size()
+        offset_x = max(0, (screen_width - WINDOW_WIDTH) // 2)
+        offset_y = max(0, (screen_height - WINDOW_HEIGHT) // 2)
 
         if self.state == "intro":
             self.draw_intro_screen()
@@ -2364,22 +2433,22 @@ class Game:
         else:  # Combat or Class Select
             # Draw combat grid
             self.draw_grid()
-            self.screen.blit(self.grid_surface, (0, GRID_TOP))
+            self.screen.blit(self.grid_surface, (offset_x, offset_y + GRID_TOP))
 
             # Draw turn indicator
-            self.draw_turn_indicator()
+            self.draw_turn_indicator_at_offset(offset_x, offset_y)
 
             # Draw message log (now always visible and clear)
             self.draw_messages()
-            self.screen.blit(self.message_surface, (20, WINDOW_HEIGHT - 320))  # Place above action buttons
+            self.screen.blit(self.message_surface, (offset_x + 20, offset_y + WINDOW_HEIGHT - 320))  # Place above action buttons
 
             # Draw action buttons
             self.draw_action_buttons()
-            self.screen.blit(self.action_surface, (0, WINDOW_HEIGHT - 100))
+            self.screen.blit(self.action_surface, (offset_x, offset_y + WINDOW_HEIGHT - 100))
 
-            # Draw all active effects
+            # Draw all active effects (need to offset these too)
             for effect in self.effects:
-                effect.draw(self.screen)
+                effect.draw_with_offset(self.screen, offset_x, offset_y + GRID_TOP)
 
         # Draw wave announcement overlay
         self.draw_wave_announcement()
@@ -2390,15 +2459,20 @@ class Game:
 
         # Draw help button (always visible except on intro/victory/game_over screens)
         if self.state not in ["intro", "victory", "game_over"]:
-            self.draw_help_button()
+            self.draw_help_button_at_offset(offset_x, offset_y)
             if self.state == "upgrade":
-                self.draw_upgrade_help_button()
+                self.draw_upgrade_help_button_at_offset(offset_x, offset_y)
 
         # Draw help overlay if showing
         if self.showing_help:
             self.draw_help_overlay()
         elif self.showing_upgrade_help:
             self.draw_upgrade_help_overlay()
+            
+        # Draw fullscreen indicator in corner
+        if self.is_fullscreen:
+            indicator_text = FONT.render("Fullscreen (F11/F/ESC to toggle)", True, (150, 150, 150))
+            self.screen.blit(indicator_text, (10, screen_height - 25))
 
         pygame.display.flip()
 
@@ -2467,6 +2541,13 @@ class Game:
                     if event.type == pygame.QUIT:
                         running = False
                         self.quit_game()
+                    elif event.type == pygame.KEYDOWN:
+                        # Handle fullscreen toggle
+                        if event.key == pygame.K_F11 or event.key == pygame.K_f:
+                            self.toggle_fullscreen()
+                        # Handle ESC key to exit fullscreen
+                        elif event.key == pygame.K_ESCAPE and self.is_fullscreen:
+                            self.toggle_fullscreen()
                     # Only process other events if not during delays or overlays
                     elif not self.victory_overlay_active and self.action_delay <= current_time:
                         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -2641,6 +2722,8 @@ class Game:
             ("Left-click: Select characters, actions, and movement squares", "bullet"),
             ("Right-click: Target enemies for attacks/spells", "bullet"),
             ("Mouse wheel: Scroll combat log", "bullet"),
+            ("F11 or F: Toggle fullscreen mode", "bullet"),
+            ("ESC: Exit fullscreen mode", "bullet"),
             ("", "section_gap"),
             ("Combat Rules:", "section_header"),
             ("Each character has 3 actions per turn.", "bullet"),
@@ -2943,9 +3026,13 @@ class Game:
 
     def draw_help_button(self):
         """Draw the help button in the top right corner"""
+        self.draw_help_button_at_offset(0, 0)
+    
+    def draw_help_button_at_offset(self, offset_x: int, offset_y: int):
+        """Draw the help button with position offset"""
         button_width = 120
         button_height = 40
-        self.help_button_rect = pygame.Rect(WINDOW_WIDTH - button_width - 10, 10, button_width, button_height)
+        self.help_button_rect = pygame.Rect(offset_x + WINDOW_WIDTH - button_width - 10, offset_y + 10, button_width, button_height)
         
         # Draw button
         pygame.draw.rect(self.screen, BUTTON_COLOR, self.help_button_rect)
@@ -2958,10 +3045,14 @@ class Game:
 
     def draw_upgrade_help_button(self):
         """Draw the upgrade help button next to the How to Play button"""
+        self.draw_upgrade_help_button_at_offset(0, 0)
+    
+    def draw_upgrade_help_button_at_offset(self, offset_x: int, offset_y: int):
+        """Draw the upgrade help button with position offset"""
         button_width = 140
         button_height = 40
         # Position it to the left of the How to Play button
-        self.upgrade_help_button_rect = pygame.Rect(WINDOW_WIDTH - button_width - 140, 10, button_width, button_height)
+        self.upgrade_help_button_rect = pygame.Rect(offset_x + WINDOW_WIDTH - button_width - 140, offset_y + 10, button_width, button_height)
         
         # Draw button
         pygame.draw.rect(self.screen, BUTTON_COLOR, self.upgrade_help_button_rect)
@@ -3041,6 +3132,28 @@ class Game:
     def toggle_help(self):
         """Toggle the help overlay"""
         self.showing_help = not self.showing_help
+
+    def toggle_fullscreen(self):
+        """Toggle between fullscreen and windowed mode"""
+        self.is_fullscreen = not self.is_fullscreen
+        
+        if self.is_fullscreen:
+            # Switch to fullscreen
+            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+            self.add_message("Switched to fullscreen mode (Press F11 or F to toggle)")
+        else:
+            # Switch back to windowed mode
+            self.screen = pygame.display.set_mode(self.windowed_size)
+            self.add_message("Switched to windowed mode (Press F11 or F to toggle)")
+        
+        # Update surfaces to match new screen size if needed
+        current_width, current_height = self.screen.get_size()
+        
+        # Only recreate surfaces if the screen size actually changed significantly
+        if abs(current_width - WINDOW_WIDTH) > 100 or abs(current_height - WINDOW_HEIGHT) > 100:
+            # For fullscreen, we might want to scale the UI, but for now we'll keep the same layout
+            # The game will be centered on larger screens
+            pass
 
     def handle_ai_turn(self, char: Character):
         """Handle AI-controlled party member's turn"""
@@ -3306,6 +3419,24 @@ class Game:
         close_text = FONT.render("Click anywhere to close", True, (150, 150, 150))
         close_rect = close_text.get_rect(center=(WINDOW_WIDTH//2, box_y + box_height - 30))
         self.screen.blit(close_text, close_rect)
+
+    def start_music(self):
+        """Start playing background music when the game begins"""
+        try:
+            pygame.mixer.music.load("sounds/dungeon.wav")
+            pygame.mixer.music.play(loops=-1)  # Loop indefinitely
+            self.add_message("Background music started")
+        except Exception as e:
+            print(f"Error loading music: {e}")
+            # Don't add message to game log for missing music file
+    
+    def stop_music(self):
+        """Stop playing background music"""
+        try:
+            pygame.mixer.music.stop()
+            self.add_message("Background music stopped")
+        except Exception as e:
+            print(f"Error stopping music: {e}")
 
 if __name__ == "__main__":
     game = Game()
