@@ -448,8 +448,9 @@ class Effect:
         
     def _draw_heal(self, surface, progress):
         """Draw a healing animation"""
-        center_x = self.start_pos[0] + GRID_SIZE//2
-        center_y = self.start_pos[1] + GRID_SIZE//2
+        # Use end_pos (target position) instead of start_pos (cleric position)
+        center_x = self.end_pos[0] + GRID_SIZE//2
+        center_y = self.end_pos[1] + GRID_SIZE//2
         radius = GRID_SIZE//2 * progress
         
         # Draw expanding healing circle
