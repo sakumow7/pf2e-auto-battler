@@ -95,7 +95,8 @@ IMAGE_PATHS = {
     'cleric': 'images/cleric.webp',
     'goblin': 'images/goblin.webp',
     'ogre': 'images/ogre.webp',
-    'wyvern': 'images/wyvern.webp'
+    'wyvern': 'images/wyvern.webp',
+    'blue_square': 'images/blue_square.png'
 }
 
 class Effect:
@@ -935,6 +936,12 @@ class Character:
         """Get basic actions available to all characters"""
         actions = []
         
+        # If in movement confirmation mode, show confirm/cancel options
+        if game.movement_confirmation_mode and game.selected_character == self:
+            actions.append(("Confirm Move [1]", self.position, lambda: game.confirm_movement()))
+            actions.append(("Cancel Move [0]", self.position, lambda: game.cancel_movement()))
+            return actions
+        
         # Add Stride action button (doesn't show movement squares yet)
         if game.actions_left >= 1:
             actions.append(("Stride", self.position, lambda: self.select_stride(game)))
@@ -1011,6 +1018,12 @@ class Fighter(Character):
     def get_actions(self, game: 'Game') -> List[Tuple[str, GridPosition, callable]]:
         """Get available actions for the fighter"""
         actions = []  # Start fresh instead of using super() to control action order
+        
+        # If in movement confirmation mode, show confirm/cancel options
+        if game.movement_confirmation_mode and game.selected_character == self:
+            actions.append(("Confirm Move [1]", self.position, lambda: game.confirm_movement()))
+            actions.append(("Cancel Move [0]", self.position, lambda: game.cancel_movement()))
+            return actions
         
         # Add Stride action button (doesn't show movement squares yet)
         if game.actions_left >= 1:
@@ -1134,6 +1147,12 @@ class Rogue(Character):
         """Get available actions for the rogue"""
         actions = []  # Start fresh instead of using super()
         
+        # If in movement confirmation mode, show confirm/cancel options
+        if game.movement_confirmation_mode and game.selected_character == self:
+            actions.append(("Confirm Move [1]", self.position, lambda: game.confirm_movement()))
+            actions.append(("Cancel Move [0]", self.position, lambda: game.cancel_movement()))
+            return actions
+        
         # Add Stride action button (doesn't show movement squares yet)
         if game.actions_left >= 1:
             actions.append(("Stride [1]", self.position, lambda: self.select_stride(game)))
@@ -1222,6 +1241,12 @@ class Wizard(Character):
     def get_actions(self, game: 'Game') -> List[Tuple[str, GridPosition, callable]]:
         """Get available actions for the wizard"""
         actions = []  # Start fresh instead of using super()
+        
+        # If in movement confirmation mode, show confirm/cancel options
+        if game.movement_confirmation_mode and game.selected_character == self:
+            actions.append(("Confirm Move [1]", self.position, lambda: game.confirm_movement()))
+            actions.append(("Cancel Move [0]", self.position, lambda: game.cancel_movement()))
+            return actions
         
         # Add Stride action button (doesn't show movement squares yet)
         if game.actions_left >= 1:
@@ -1344,6 +1369,12 @@ class Cleric(Character):
     def get_actions(self, game: 'Game') -> List[Tuple[str, GridPosition, callable]]:
         """Get available actions for the cleric"""
         actions = []  # Start fresh instead of using super()
+        
+        # If in movement confirmation mode, show confirm/cancel options
+        if game.movement_confirmation_mode and game.selected_character == self:
+            actions.append(("Confirm Move [1]", self.position, lambda: game.confirm_movement()))
+            actions.append(("Cancel Move [0]", self.position, lambda: game.cancel_movement()))
+            return actions
         
         # Add Stride action button (doesn't show movement squares yet)
         if game.actions_left >= 1:
@@ -1613,6 +1644,25 @@ class Game:
         self.showing_upgrade_help = False
         self.upgrade_help_button_rect = None
         
+        # Movement confirmation variables
+        self.selected_movement_square = None  # The square selected for movement
+        self.movement_confirmation_mode = False  # Whether we're in movement confirmation mode
+        self.blue_square_image = None  # The blue square image for movement confirmation
+        
+        # Double-click detection variables
+        self.last_click_time = 0
+        self.last_click_pos = None
+        self.double_click_threshold = 500  # milliseconds
+        
+        # Load blue square image
+        try:
+            if os.path.exists(IMAGE_PATHS['blue_square']):
+                original_blue_square = pygame.image.load(IMAGE_PATHS['blue_square']).convert_alpha()
+                self.blue_square_image = pygame.transform.scale(original_blue_square, (GRID_SIZE, GRID_SIZE))
+        except Exception as e:
+            print(f"Error loading blue square image: {e}")
+            self.blue_square_image = None
+        
         # Load background image
         self.background_image = None
         try:
@@ -1719,6 +1769,19 @@ class Game:
         
         # Adjust click position to account for fullscreen centering
         adjusted_pos = (pos[0] - offset_x, pos[1] - offset_y)
+        
+        # Double-click detection
+        current_time = pygame.time.get_ticks()
+        is_double_click = False
+        
+        if (self.last_click_pos and 
+            abs(adjusted_pos[0] - self.last_click_pos[0]) < 10 and 
+            abs(adjusted_pos[1] - self.last_click_pos[1]) < 10 and
+            current_time - self.last_click_time < self.double_click_threshold):
+            is_double_click = True
+        
+        self.last_click_time = current_time
+        self.last_click_pos = adjusted_pos
         
         # Don't handle any clicks during victory overlay
         if self.victory_overlay_active:
@@ -1900,19 +1963,21 @@ class Game:
                     break
             
             if not space_occupied:
-                if self.selected_character.move_to(clicked_pos, self):
-                    self.add_message(f"{self.selected_character.name} strides to new position")
-                    self.action_delay = pygame.time.get_ticks() + 500  # 0.5 second delay for movement
-                    self.actions_left -= 1
-                    if self.actions_left <= 0:
-                        self.action_delay += 500  # Add extra delay before next turn
-                        self.next_turn()
+                # Check if this is a double-click on the already selected movement square
+                if (is_double_click and self.selected_movement_square and 
+                    self.selected_movement_square == clicked_pos and 
+                    self.movement_confirmation_mode):
+                    # Double-click confirms movement - go through proper action processing
+                    self.perform_action(self.confirm_movement)
+                    return
+                
+                # Otherwise, select the movement square for confirmation
+                self.selected_movement_square = clicked_pos
+                self.movement_confirmation_mode = True
+                self.add_message(f"{self.selected_character.name} selected a movement square. Confirm movement or select a different square.")
+                self.update_available_actions()
             else:
                 self.add_message("Cannot move to an occupied space!")
-            
-            self.selected_character = None
-            self.highlighted_squares = []
-            self.update_available_actions()
         else:
             # Try to select a character at the clicked position
             for char in self.get_all_characters():
@@ -2058,6 +2123,10 @@ class Game:
         self.selected_character = None
         self.selected_target = None
         self.highlighted_squares = []
+        
+        # Clear movement confirmation state
+        self.selected_movement_square = None
+        self.movement_confirmation_mode = False
         
         # Reset shield for the current character if it's their turn starting
         if self.current_member_idx < len(self.party):
@@ -2276,6 +2345,11 @@ class Game:
             highlight_surface = pygame.Surface((GRID_SIZE, GRID_SIZE), pygame.SRCALPHA)
             highlight_surface.fill((120, 120, 120, 100))  # Semi-transparent highlight
             self.grid_surface.blit(highlight_surface, (pos.x * GRID_SIZE, pos.y * GRID_SIZE))
+        
+        # Draw blue square around selected movement square
+        if self.selected_movement_square and self.blue_square_image:
+            pos = self.selected_movement_square
+            self.grid_surface.blit(self.blue_square_image, (pos.x * GRID_SIZE, pos.y * GRID_SIZE))
         
         # Draw characters
         for char in self.party:
@@ -2694,6 +2768,38 @@ class Game:
             self.update_available_actions() # Always update actions after an attempt
         return result
 
+    def confirm_movement(self) -> Tuple[int, bool]:
+        """Confirm the selected movement"""
+        if not self.selected_character or not self.selected_movement_square:
+            return 0, False
+            
+        if self.selected_character.move_to(self.selected_movement_square, self):
+            self.add_message(f"{self.selected_character.name} strides to new position")
+            self.action_delay = pygame.time.get_ticks() + 500  # 0.5 second delay for movement
+            
+            # Clear movement selection state
+            self.selected_character = None
+            self.highlighted_squares = []
+            self.selected_movement_square = None
+            self.movement_confirmation_mode = False
+            
+            if self.actions_left <= 1:  # Will be 0 after this action
+                self.action_delay += 500  # Add extra delay before next turn
+                self._end_turn_after_delay = True
+            
+            return 1, True  # Used 1 action, was successful
+        else:
+            self.add_message("Movement failed!")
+            return 0, False
+
+    def cancel_movement(self) -> Tuple[int, bool]:
+        """Cancel the selected movement"""
+        character_name = self.selected_character.name if self.selected_character else "Character"
+        self.selected_movement_square = None
+        self.movement_confirmation_mode = False
+        self.add_message(f"{character_name} cancelled movement selection")
+        return 0, True  # No action used, but was successful
+
     def start_game(self):
         """Transition from intro to class selection"""
         self.state = "class_select"
@@ -2720,6 +2826,7 @@ class Game:
             ("", "section_gap"),
             ("Controls:", "section_header"),
             ("Left-click: Select characters, actions, and movement squares", "bullet"),
+            ("Double-click: Confirm selected movement (or use Confirm Move button)", "bullet"),
             ("Right-click: Target enemies for attacks/spells", "bullet"),
             ("Mouse wheel: Scroll combat log", "bullet"),
             ("F11 or F: Toggle fullscreen mode", "bullet"),
@@ -3075,6 +3182,7 @@ class Game:
         help_sections = [
             ("Controls:", [
                 "Left-click: Select characters, actions, and movement squares",
+                "Double-click: Confirm selected movement (or use Confirm Move button)",
                 "Right-click: Target enemies for attacks/spells",
                 "Mouse wheel: Scroll combat log"
             ]),
