@@ -623,9 +623,9 @@ class Character:
         if not (0 <= new_pos.x < GRID_COLS and 0 <= new_pos.y < GRID_ROWS):
             return False
         
-        # Check if position is occupied
+        # Check if position is occupied by a living character
         for char in game.get_all_characters():
-            if char != self and char.position == new_pos:
+            if char != self and char.position == new_pos and char.is_alive():
                 return False
         
         # Calculate movement cost (diagonal movement costs more)
@@ -1917,7 +1917,7 @@ class Game:
             # Then check for allies (for Cleric spells)
             if isinstance(current_char, Cleric):
                 for ally in self.party:
-                    if ally != current_char and ally.position == clicked_pos and ally.is_alive():
+                    if ally.position == clicked_pos and ally.is_alive():
                         distance = current_char.position.distance_to(ally.position)
                         valid_target = distance <= current_char.SPIRIT_LINK_RANGE
                         
@@ -1955,10 +1955,10 @@ class Game:
         
         # Handle movement
         if self.selected_character and clicked_pos in self.highlighted_squares:
-            # Check if space is occupied
+            # Check if space is occupied by a living character
             space_occupied = False
             for char in self.get_all_characters():
-                if char != self.selected_character and char.position == clicked_pos:
+                if char != self.selected_character and char.position == clicked_pos and char.is_alive():
                     space_occupied = True
                     break
             
@@ -1988,12 +1988,12 @@ class Game:
                         all_moves = char.get_valid_moves(self)
                         self.highlighted_squares = [
                             pos for pos in all_moves 
-                            if not any(other.position == pos 
+                            if not any(other.position == pos and other.is_alive()
                                      for other in self.get_all_characters()
                                      if other != char)
                         ]
                         self.update_available_actions()
-                    break
+                        break
     
     def update_available_actions(self):
         """Update the list of available actions"""
@@ -2715,20 +2715,20 @@ class Game:
                        current_char.position.distance_to(enemy.position) <= 1]
             elif "Spirit Link" in action_name:
                 return [ally for ally in self.party 
-                       if ally != current_char and ally.is_alive() and 
+                       if ally.is_alive() and 
                        current_char.position.distance_to(ally.position) <= current_char.SPIRIT_LINK_RANGE]
             elif "Sanctuary" in action_name:
                 return [ally for ally in self.party 
-                       if ally != current_char and ally.is_alive() and 
+                       if ally.is_alive() and 
                        current_char.position.distance_to(ally.position) <= current_char.SANCTUARY_RANGE]
             elif "Lesser Heal" in action_name:
                 if "1" in action_name:  # Touch range
                     return [ally for ally in self.party 
-                           if ally != current_char and ally.is_alive() and 
+                           if ally.is_alive() and 
                            current_char.position.distance_to(ally.position) <= current_char.LESSER_HEAL_RANGE]
                 else:  # 30-foot range
                     return [ally for ally in self.party 
-                           if ally != current_char and ally.is_alive() and 
+                           if ally.is_alive() and 
                            current_char.position.distance_to(ally.position) <= current_char.LESSER_HEAL_UP_RANGE]
         elif isinstance(current_char, (Fighter, Rogue)): # Basic melee targeting for now
              return [enemy for enemy in self.current_enemies
@@ -3374,9 +3374,20 @@ class Game:
                             action_performed = True
         
         elif isinstance(char, Cleric):
-            allies_needing_heal = [(ally, ally.max_hp - ally.hp) 
-                                 for ally in self.party 
-                                 if ally != char and ally.is_alive() and ally.hp < ally.max_hp]
+            # First check if Cleric needs healing
+            if char.hp < char.max_hp:
+                missing_hp = char.max_hp - char.hp
+                allies_needing_heal = [(char, missing_hp)]
+            else:
+                allies_needing_heal = []
+            
+            # Then check other allies
+            allies_needing_heal.extend([
+                (ally, ally.max_hp - ally.hp) 
+                for ally in self.party 
+                if ally != char and ally.is_alive() and ally.hp < ally.max_hp
+            ])
+            
             if allies_needing_heal:
                 allies_needing_heal.sort(key=lambda x: x[1], reverse=True)
                 target_ally, missing_hp = allies_needing_heal[0]
