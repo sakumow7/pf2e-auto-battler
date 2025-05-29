@@ -3,6 +3,7 @@ import sys
 import random
 import os
 import math
+import logging
 from typing import List, Tuple, Dict, Optional, Union
 
 # Initialize Pygame
