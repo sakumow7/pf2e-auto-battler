@@ -606,25 +606,147 @@ class Character:
         speed: Movement speed in feet
     """
     def __init__(self, name: str, hp: int, ac: int, attack_bonus: int):
-        self.name = name
-        self.max_hp = hp
-        self.hp = hp
-        self.base_ac = ac
-        self.attack_bonus = attack_bonus
-        self.position = GridPosition(-1, -1)  # Off-grid initially
-        self.alive = True
-        self.color = (255, 255, 255)
-        self.sprite = None
-        self.speed = 25  # Default movement speed in feet
-        self.potions = 3  # Starting potions
-        self.bonus_damage = 0  # Bonus damage from upgrades
-        self.off_guard = False  # Condition for flanking/sneak attacks
-        self.is_enemy = False  # Flag to distinguish enemies from party members
-        
-        # Conditions system
-        self.conditions = {}  # Dictionary to store active conditions and their durations
-        self.sanctuary_active = False  # Special flag for sanctuary protection
-    
+        self._name = name
+        self._max_hp = hp
+        self._hp = hp
+        self._base_ac = ac
+        self._attack_bonus = attack_bonus
+        self._position = GridPosition(-1, -1)  # Off-grid initially
+        self._alive = True
+        self._color = (255, 255, 255)
+        self._sprite = None
+        self._speed = 25  # Default movement speed in feet
+        self._potions = 3  # Starting potions
+        self._bonus_damage = 0  # Bonus damage from upgrades
+        self._off_guard = False  # Condition for flanking/sneak attacks
+        self._is_enemy = False  # Flag to distinguish enemies from party members
+        self._conditions = {}  # Dictionary to store active conditions and their durations
+        self._sanctuary_active = False  # Special flag for sanctuary protection
+
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def hp(self) -> int:
+        return self._hp
+
+    @hp.setter
+    def hp(self, value: int):
+        self._hp = max(0, min(value, self._max_hp))
+        self._alive = self._hp > 0
+
+    @property
+    def max_hp(self) -> int:
+        return self._max_hp
+
+    @max_hp.setter
+    def max_hp(self, value: int):
+        self._max_hp = max(1, value)
+        self._hp = min(self._hp, self._max_hp)
+
+    @property
+    def base_ac(self) -> int:
+        return self._base_ac
+
+    @base_ac.setter
+    def base_ac(self, value: int):
+        self._base_ac = max(1, value)
+
+    @property
+    def attack_bonus(self) -> int:
+        return self._attack_bonus
+
+    @attack_bonus.setter
+    def attack_bonus(self, value: int):
+        self._attack_bonus = value
+
+    @property
+    def position(self) -> 'GridPosition':
+        return self._position
+
+    @position.setter
+    def position(self, value: 'GridPosition'):
+        if not isinstance(value, GridPosition):
+            raise ValueError("Position must be a GridPosition instance")
+        self._position = value
+
+    @property
+    def alive(self) -> bool:
+        return self._alive
+
+    @property
+    def color(self) -> Tuple[int, int, int]:
+        return self._color
+
+    @color.setter
+    def color(self, value: Tuple[int, int, int]):
+        if not isinstance(value, tuple) or len(value) != 3:
+            raise ValueError("Color must be a tuple of 3 integers")
+        self._color = value
+
+    @property
+    def sprite(self):
+        return self._sprite
+
+    @sprite.setter
+    def sprite(self, value):
+        self._sprite = value
+
+    @property
+    def speed(self) -> int:
+        return self._speed
+
+    @speed.setter
+    def speed(self, value: int):
+        self._speed = max(5, value)  # Minimum speed of 5 feet
+
+    @property
+    def potions(self) -> int:
+        return self._potions
+
+    @potions.setter
+    def potions(self, value: int):
+        self._potions = max(0, value)
+
+    @property
+    def bonus_damage(self) -> int:
+        return self._bonus_damage
+
+    @bonus_damage.setter
+    def bonus_damage(self, value: int):
+        self._bonus_damage = value
+
+    @property
+    def off_guard(self) -> bool:
+        return self._off_guard
+
+    @off_guard.setter
+    def off_guard(self, value: bool):
+        self._off_guard = bool(value)
+
+    @property
+    def is_enemy(self) -> bool:
+        return self._is_enemy
+
+    @is_enemy.setter
+    def is_enemy(self, value: bool):
+        self._is_enemy = bool(value)
+
+    @property
+    def conditions(self) -> Dict[str, int]:
+        return self._conditions
+
+    @property
+    def sanctuary_active(self) -> bool:
+        return self._sanctuary_active
+
+    @sanctuary_active.setter
+    def sanctuary_active(self, value: bool):
+        self._sanctuary_active = bool(value)
+
+
     def load_sprite(self, sprite_path: str):
         """Load and scale character sprite"""
         try:
@@ -948,11 +1070,12 @@ class Character:
 
     def take_damage(self, damage: int, game: 'Game'):
         """Take damage and update health"""
+        old_hp = self.hp
         self.hp = max(0, self.hp - damage)
-        game.add_message(f"{self.name} takes {damage} damage! (HP: {self.hp}/{self.max_hp})")
+        actual_damage = old_hp - self.hp  # Calculate actual damage taken after min/max limits
+        game.add_message(f"{self.name} takes {actual_damage} damage! (HP: {self.hp}/{self.max_hp})")
         
-        if self.hp == 0:
-            self.alive = False
+        if not self.alive:
             game.add_message(f"{self.name} has fallen!")
 
     def heal(self, game: 'Game') -> int:
