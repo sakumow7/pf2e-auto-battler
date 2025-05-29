@@ -431,29 +431,20 @@ class Effect:
         center_x = self.start_pos[0] + GRID_SIZE//2
         center_y = self.start_pos[1] + GRID_SIZE//2
         
-        # Draw rotating shield effect
-        angle = progress * math.pi * 4
-        radius = GRID_SIZE//2 + 5
-        
         shield_surface = pygame.Surface((GRID_SIZE * 2, GRID_SIZE * 2), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress * 0.5))
         
-        # Draw multiple shield arcs
-        for i in range(3):
-            start_angle = angle + (i * math.pi * 2 / 3)
-            end_angle = start_angle + math.pi / 2
-            
-            points = []
-            for a in range(int(start_angle * 180/math.pi), int(end_angle * 180/math.pi)):
-                rad = a * math.pi / 180
-                x = GRID_SIZE + math.cos(rad) * radius
-                y = GRID_SIZE + math.sin(rad) * radius
-                points.append((x, y))
-                
-            if len(points) > 1:
-                pygame.draw.lines(shield_surface, (*self.color, alpha), False, points, 3)
+        self._draw_arc_pattern(
+            shield_surface,
+            (GRID_SIZE, GRID_SIZE),
+            GRID_SIZE//2 + 5,
+            3,
+            progress * math.pi * 4,
+            math.pi / 2,
+            (*self.color, alpha)
+        )
         
-        surface.blit(shield_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE + 50))
+        surface.blit(shield_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE))
         
     def _draw_heal(self, surface, progress):
         """Draw a healing animation"""
@@ -473,10 +464,10 @@ class Effect:
             y = center_y + math.sin(angle) * radius
             
             cross_size = 10
-            pygame.draw.line(surface, self.color, (x - cross_size, y + 50), (x + cross_size, y + 50), 2)
-            pygame.draw.line(surface, self.color, (x, y - cross_size + 50), (x, y + cross_size + 50), 2)
+            pygame.draw.line(surface, self.color, (x - cross_size, y), (x + cross_size, y), 2)
+            pygame.draw.line(surface, self.color, (x, y - cross_size), (x, y + cross_size), 2)
             
-        surface.blit(circle_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE + 50))
+        surface.blit(circle_surface, (center_x - GRID_SIZE, center_y - GRID_SIZE))
 
     def _draw_link(self, surface, progress):
         """Draw the spirit link animation"""
@@ -529,26 +520,47 @@ class Effect:
         center_x = self.start_pos[0] + GRID_SIZE//2
         center_y = self.start_pos[1] + GRID_SIZE//2
         
-        # Create shield effect
         effect_surface = pygame.Surface((GRID_SIZE * 4, GRID_SIZE * 4), pygame.SRCALPHA)
         alpha = int(255 * (1 - progress))
         
-        # Draw multiple shield arcs
-        for i in range(4):
-            start_angle = math.pi * 2 * (i / 4)
-            end_angle = start_angle + math.pi / 2
-            
-            points = []
-            for a in range(int(start_angle * 180/math.pi), int(end_angle * 180/math.pi)):
-                rad = a * math.pi / 180
-                x = GRID_SIZE + math.cos(rad) * GRID_SIZE
-                y = GRID_SIZE + math.sin(rad) * GRID_SIZE
-                points.append((x, y))
-                
-            if len(points) > 1:
-                pygame.draw.lines(effect_surface, (*self.color, alpha), False, points, 3)
+        self._draw_arc_pattern(
+            effect_surface,
+            (GRID_SIZE * 2, GRID_SIZE * 2),
+            GRID_SIZE,
+            4,
+            0,
+            math.pi / 2,
+            (*self.color, alpha)
+        )
         
         surface.blit(effect_surface, (center_x - GRID_SIZE * 2, center_y - GRID_SIZE * 2))
+
+    def _draw_arc_pattern(self, surface: pygame.Surface, center: Tuple[int, int], radius: int, 
+                         num_arcs: int, angle_offset: float, arc_length: float, color: Tuple[int, int, int, int], 
+                         line_width: int = 3):
+        """Helper method to draw a pattern of arcs
+        
+        Args:
+            surface: Surface to draw on
+            center: (x, y) center point
+            radius: Radius of the arcs
+            num_arcs: Number of arcs to draw
+            angle_offset: Starting angle offset in radians
+            arc_length: Length of each arc in radians
+            color: (r, g, b, a) color tuple
+            line_width: Width of the arc lines
+        """
+        for i in range(num_arcs):
+            start_angle = angle_offset + (i * math.pi * 2 / num_arcs)
+            end_angle = start_angle + arc_length
+            
+            points = [(
+                center[0] + math.cos(a * math.pi / 180) * radius,
+                center[1] + math.sin(a * math.pi / 180) * radius
+            ) for a in range(int(start_angle * 180/math.pi), int(end_angle * 180/math.pi))]
+            
+            if len(points) > 1:
+                pygame.draw.lines(surface, color, False, points, line_width)
 
 class GridPosition:
     """
